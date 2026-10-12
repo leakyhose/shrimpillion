@@ -1,0 +1,29 @@
+{
+  "name": "shrimpillion",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "bank": "npm run bank -w @shrimpillion/api",
+    "dev": "npm run dev -w @shrimpillion/api & npm run dev -w @shrimpillion/web",
+    "start": "npm run start -w @shrimpillion/api",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core && tsc -p apps/api && tsc -p apps/web",
+    "eval:matcher": "tsx packages/core/scripts/eval-probes.ts",
+    "dev:api": "npm run dev -w @shrimpillion/api",
+    "dev:web": "npm run dev -w @shrimpillion/web",
+    "build:web": "npm run build -w @shrimpillion/web"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

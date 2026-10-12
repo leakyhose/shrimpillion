@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# local data: the PGlite dev database and the generated prompt bank
+.data/
+data/bank/
+
+# raw source data and internal notes (kept locally, not published)
+research/
+docs/
+
+.env
+.env.*
+!.env.example
+
+# deploy and editor tooling
+.vercel/
+.railway/
+.netlify/
+.vscode/
+.idea/
+.claude/
