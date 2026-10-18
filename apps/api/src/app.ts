@@ -5,7 +5,7 @@ import type { Services } from "./context.ts";
 import type { RoundSettings } from "./db/schema.ts";
 import {
   getGameView, getOwnerView, listPlayerGames, nextPrompt, passPrompt, playerStats,
-  roundLeaderboard, scoreDistribution, startGame, submitGuess,
+  roundLeaderboard, roundScoreDistribution, scoreDistribution, startGame, submitGuess,
 } from "./services/games.ts";
 import { createPlayer, playerByToken, playerView, renamePlayer, type Player } from "./services/players.ts";
 import { DEFAULT_SETTINGS, createRandomRound, createSetRound, requireRound, roundView } from "./services/rounds.ts";
@@ -146,7 +146,7 @@ export function createApp(s: Services, opts: { corsOrigins?: string[] } = {}) {
 
   app.get("/api/me/stats", async (c) => c.json(await playerStats(s, me(c).id)));
 
-  // Every finished game across all rounds, for the "better than N% of divers" curve.
+  // Every finished game across all rounds on a 0–700 scale (the results curve now uses /api/rounds/:id/scores).
   app.get("/api/stats/scores", async (c) => c.json(await scoreDistribution(s)));
 
   // ── rounds (shareable) ──
@@ -169,6 +169,14 @@ export function createApp(s: Services, opts: { corsOrigins?: string[] } = {}) {
   app.get("/api/rounds/:id/leaderboard", async (c) => {
     const limit = intParam(c.req.query("limit"), 50, 1, 200);
     return c.json(await roundLeaderboard(s, c.req.param("id"), limit, c.get("player")?.id));
+  });
+
+  // The results curve: this round's finished scores (or every dive's, until the round has a few), binned;
+  // `?score=` adds "better than N%".
+  app.get("/api/rounds/:id/scores", async (c) => {
+    const raw = c.req.query("score");
+    const score = raw === undefined ? undefined : intParam(raw, 0, 0, 1_000_000);
+    return c.json(await roundScoreDistribution(s, c.req.param("id"), score));
   });
 
   /** Start (or resume) this player's game for the round. */

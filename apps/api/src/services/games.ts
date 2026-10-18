@@ -385,6 +385,48 @@ export async function scoreDistribution(s: Services) {
   return { total: counts.reduce((a, b) => a + b, 0), binSize: 10, maxScore: 700, counts };
 }
 
+/** Bins across a round's 0..maxScore range: 35 points each on a 7-prompt round. */
+export const SCORE_BINS = 20;
+
+/** Fewer finished runs than this on a round (most "All" rounds are played once) and we compare against every dive. */
+export const MIN_ROUND_SAMPLE = 5;
+
+/**
+ * How a round's finished runs scored, as a histogram over 0..maxScore (`scope: "round"`, one run per diver).
+ * Until the round has MIN_ROUND_SAMPLE runs, it's every finished dive instead, each scaled to this
+ * round's length (`scope: "all"`). With `score`, also the share of those runs it beats (strictly
+ * lower, after scaling), in whole percent.
+ */
+export async function roundScoreDistribution(s: Services, roundId: string, score?: number) {
+  const round = await requireRound(s, roundId);
+  const maxScore = round.promptIds.length * MAX_POINTS_PER_PROMPT;
+  const finished = eq(games.status, "finished");
+  const [{ own } = { own: 0 }] = await s.db
+    .select({ own: count() })
+    .from(games)
+    .where(and(eq(games.roundId, roundId), finished));
+  const scope: "round" | "all" = own >= MIN_ROUND_SAMPLE ? "round" : "all";
+
+  const prompts = sql<number>`jsonb_array_length(${rounds.promptIds})`.mapWith(Number);
+  const rows = await s.db
+    .select({ score: games.score, prompts, n: count() })
+    .from(games)
+    .innerJoin(rounds, eq(rounds.id, games.roundId))
+    .where(scope === "round" ? and(eq(games.roundId, roundId), finished) : finished)
+    .groupBy(games.score, prompts);
+
+  const dist = Array<number>(SCORE_BINS).fill(0);
+  let sample = 0, below = 0;
+  for (const r of rows) {
+    const max = r.prompts * MAX_POINTS_PER_PROMPT;
+    dist[Math.min(SCORE_BINS - 1, Math.max(0, Math.floor((r.score * SCORE_BINS) / max)))]! += r.n;
+    sample += r.n;
+    if (score !== undefined && r.score * maxScore < score * max) below += r.n; // r.score/max < score/maxScore
+  }
+  const betterThan = score !== undefined && sample > 0 ? Math.round((100 * below) / sample) : null;
+  return { scope, sample, betterThan, maxScore, dist };
+}
+
 /** Finished games for a round, best first. Answers only shown to viewers who finished it too. */
 export async function roundLeaderboard(s: Services, roundId: string, limit: number, viewerId?: string) {
   await requireRound(s, roundId);
