@@ -38,6 +38,12 @@ async function newPlayer(name?: string) {
   return r.body.token as string;
 }
 
+/** Let the open prompt run out of time, then move on (which also closes the game after the last prompt). */
+async function timeOut(gameId: string, token: string) {
+  clock += 60_000; // past preview + timer + grace
+  return call("POST", `/api/games/${gameId}/next`, token);
+}
+
 /** A guess one typo away from a long single-word answer (should come back as a correction). */
 function typoFor(promptId: string) {
   const answer = bank.prompt(promptId)!.answers.find((a) => /^[a-z]{9,}$/.test(normalize(a.name)))!;
@@ -102,12 +108,12 @@ describe.skipIf(!hasData)("random round → play → share", () => {
     expect(answer).toBeTruthy();
   });
 
-  it("passes and times out, then finishes", async () => {
+  it("times out, then finishes", async () => {
     await call("POST", `/api/games/${gameId}/next`, alice);
-    const pass = await call("POST", `/api/games/${gameId}/pass`, alice, { slot: 2 });
-    expect(pass.body.game.slots[1].status).toBe("passed");
+    const skipped = await timeOut(gameId, alice);
+    expect(skipped.body.game.slots[1].status).toBe("timeout");
+    expect(skipped.body.game.slots[2].status).toBe("active");
 
-    await call("POST", `/api/games/${gameId}/next`, alice);
     clock += 60_000; // past preview + timer + grace
     const late = await call("POST", `/api/games/${gameId}/guess`, alice, { text: "anything", slot: 3 });
     expect(late.body.result).toBe("closed");
@@ -120,9 +126,9 @@ describe.skipIf(!hasData)("random round → play → share", () => {
     const hist = await call("GET", "/api/me/games", alice);
     expect(hist.body.items).toHaveLength(1);
     expect(hist.body.items[0]).toMatchObject({ id: gameId, roundId, status: "finished" });
-    expect(hist.body.items[0].slots.map((s: any) => s.status)).toEqual(["answered", "passed", "timeout"]);
+    expect(hist.body.items[0].slots.map((s: any) => s.status)).toEqual(["answered", "timeout", "timeout"]);
     const stats = await call("GET", "/api/me/stats", alice);
-    expect(stats.body).toMatchObject({ gamesStarted: 1, gamesFinished: 1, promptsPlayed: 3, answered: 1, passed: 1, timedOut: 1 });
+    expect(stats.body).toMatchObject({ gamesStarted: 1, gamesFinished: 1, promptsPlayed: 3, answered: 1, timedOut: 2 });
   });
 
   it("lets a friend open the shared round without spoilers, then compare", async () => {
@@ -151,7 +157,7 @@ describe.skipIf(!hasData)("random round → play → share", () => {
         const r = await call("POST", `/api/games/${g.id}/guess`, bob, { text: typoFor(n.body.game.slots[0].prompt.id).typo });
         expect(r.body.result).toBe("accept");
       } else {
-        await call("POST", `/api/games/${g.id}/pass`, bob);
+        await timeOut(g.id, bob);
       }
     }
 
@@ -171,7 +177,7 @@ describe.skipIf(!hasData)("random round → play → share", () => {
     for (let i = 0; i < 4; i++) {
       const n = await call("POST", `/api/games/${g.body.game.id}/next`, alice);
       ids.push(n.body.game.slots[i].prompt.id);
-      await call("POST", `/api/games/${g.body.game.id}/pass`, alice);
+      await timeOut(g.body.game.id, alice);
     }
     expect(ids.some((id) => seen.has(id))).toBe(false);
     const none = await call("POST", "/api/rounds", alice, { mode: "random", kinds: ["unlimited"], unseenOnly: true });
@@ -186,7 +192,7 @@ describe.skipIf(!hasData)("random round → play → share", () => {
       for (let i = 0; i < 2; i++) {
         await call("POST", `/api/games/${game.id}/next`, carol);
         if (guess && i === 0) await call("POST", `/api/games/${game.id}/guess`, carol, { text: guess });
-        await call("POST", `/api/games/${game.id}/pass`, carol);
+        await timeOut(game.id, carol);
       }
       return { roundId: round.id as string, gameId: game.id as string };
     }

@@ -17,7 +17,7 @@ export const GRACE_MS = 2000;
 export const MAX_GUESSES_PER_PROMPT = 200;
 
 const { games, gameSlots, guesses, players } = schema;
-const isClosed = (status: SlotStatus) => status === "answered" || status === "passed" || status === "timeout";
+const isClosed = (status: SlotStatus) => status === "answered" || status === "timeout";
 
 /** A slot's status as of `now`, counting an expired active slot as timed out. */
 function effectiveStatus(slot: Slot, now: Date): SlotStatus {
@@ -170,23 +170,6 @@ export async function submitGuess(s: Services, gameId: string, playerId: string,
     return { result, answer: { name: matched.name, tier: matched.tier, points, quip: matched.quip ?? null } };
   });
   return { ...outcome, game: await getOwnerView(s, gameId, playerId) };
-}
-
-/** Give up on the open prompt (scores 0). */
-export async function passPrompt(s: Services, gameId: string, playerId: string, slotNo?: number) {
-  await s.db.transaction(async (tx) => {
-    const state = await lockOwned(s, tx, gameId, playerId);
-    const slot = state.slots.find((x) => x.status === "active");
-    if (!slot) return; // already closed (e.g. timed out): nothing to do
-    if (slotNo !== undefined && slot.slot !== slotNo) throw new ApiError(409, "slot_mismatch", `Slot ${slot.slot} is open, not ${slotNo}`);
-    await tx
-      .update(gameSlots)
-      .set({ status: "passed", endedAt: s.now() })
-      .where(and(eq(gameSlots.gameId, gameId), eq(gameSlots.slot, slot.slot)));
-    slot.status = "passed";
-    await settle(s, tx, state);
-  });
-  return getOwnerView(s, gameId, playerId);
 }
 
 // ───────────────────────────────────── views ─────────────────────────────────────
@@ -349,14 +332,13 @@ export async function playerStats(s: Services, playerId: string) {
     .select({ status: gameSlots.status, tier: gameSlots.tier, n: count(), points: sql<number>`sum(${gameSlots.score})`.mapWith(Number) })
     .from(gameSlots)
     .innerJoin(games, eq(games.id, gameSlots.gameId))
-    .where(and(eq(games.playerId, playerId), inArray(gameSlots.status, ["answered", "passed", "timeout"])))
+    .where(and(eq(games.playerId, playerId), inArray(gameSlots.status, ["answered", "timeout"])))
     .groupBy(gameSlots.status, gameSlots.tier);
   const tiers = Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<Tier, number>;
-  let answered = 0, passed = 0, timedOut = 0, points = 0;
+  let answered = 0, timedOut = 0, points = 0;
   for (const r of slotRows) {
     points += r.points ?? 0;
     if (r.status === "answered") { answered += r.n; if (r.tier) tiers[r.tier as Tier] += r.n; }
-    if (r.status === "passed") passed += r.n;
     if (r.status === "timeout") timedOut += r.n;
   }
   return {
@@ -364,8 +346,8 @@ export async function playerStats(s: Services, playerId: string) {
     gamesFinished: g?.finished ?? 0,
     bestScore: g?.best == null ? null : Number(g.best),
     averageScore: g?.avg == null ? null : Math.round(Number(g.avg)),
-    promptsPlayed: answered + passed + timedOut,
-    answered, passed, timedOut,
+    promptsPlayed: answered + timedOut,
+    answered, timedOut,
     totalPoints: points,
     tiers,
   };

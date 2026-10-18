@@ -138,7 +138,7 @@ export const sfx = {
       tone(o, { type: "triangle", f0: 523, dur: 0.4, peak: 0.09, delay: 0.15 });
     }
   },
-  /** Passed or timed out: nothing landed. */
+  /** Timed out: nothing landed. */
   miss: play((o) => {
     tone(o, { f0: 220, f1: 52, dur: 0.7, peak: 0.24 });
     noise(o, { dur: 0.5, lp: 400, peak: 0.14, delay: 0.05 });

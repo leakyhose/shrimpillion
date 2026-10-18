@@ -76,7 +76,7 @@ function MiniDive({ slots }: { slots: any[] }) {
   return (
     <div className="minidive" aria-hidden>
       {slots.map((s) => {
-        const closed = s.status === "answered" || s.status === "passed" || s.status === "timeout";
+        const closed = s.status === "answered" || s.status === "timeout";
         const tier = s.status === "answered" ? s.tier : "miss";
         const y = Math.max(3, (s.score ?? 0) * 0.56);
         return (

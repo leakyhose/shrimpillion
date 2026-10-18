@@ -21,7 +21,6 @@ const TIER_SUB: Record<string, string> = {
 };
 const MISS_SUB: Record<string, string> = {
   timeout: "the clock got there first.",
-  passed: "you let this one swim by.",
 };
 const TIER_EMOJI: Record<string, string> = {
   plankton: "🫧", tooclever: "🤡", schooler: "🐟", rare: "🦑", deepcut: "🏮", shrimpillion: "🌟", miss: "⬛",
@@ -159,11 +158,6 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
     }
   }
 
-  const pass = (slot: number) =>
-    act(async () => {
-      setGame((await api("POST", `/api/games/${game.id}/pass`, { slot })).game);
-    });
-
   const view = phase === "begin" ? "title" : phase === "results" ? "results" : "dive";
   const gold = game.slots.some((s: any) => s.tier === "shrimpillion");
 
@@ -266,7 +260,6 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
           slot={active}
           busy={busy}
           onGuess={(t) => guess(t, active.slot)}
-          onPass={() => pass(active.slot)}
           onExpired={reload}
           onPreview={setPreviewing}
         />
@@ -366,7 +359,6 @@ function ActivePrompt(props: {
   slot: any;
   busy: boolean;
   onGuess: (text: string) => Promise<any>;
-  onPass: () => void;
   onExpired: () => void;
   onPreview: (previewing: boolean) => void;
 }) {
@@ -480,9 +472,6 @@ function ActivePrompt(props: {
           {/* mousedown default would move focus off the field, and on a phone that drops the keyboard */}
           <button type="submit" className="btn-pink ds-dive" disabled={!text.trim() || busy || inPreview || over} onMouseDown={(e) => e.preventDefault()}>
             DIVE
-          </button>
-          <button type="button" className="ds-pass" onClick={props.onPass} disabled={busy || inPreview || over}>
-            PASS ▸
           </button>
         </div>
       </form>

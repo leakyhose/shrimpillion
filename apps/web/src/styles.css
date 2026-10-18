@@ -551,8 +551,7 @@ html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--
   left: 0;
   right: 0;
   bottom: 0;
-  /* the bottom padding leaves room for PASS under the DIVE button */
-  padding: 10px 12px calc(22px + env(safe-area-inset-bottom));
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(180deg, #0b152600, #050a14eb 26%);
   /* no slide: the bar is simply there while the clock runs and gone otherwise */
   transform: translateY(120%);
@@ -615,23 +614,7 @@ html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--
 .ds-fuse { position: absolute; left: 0; bottom: -8px; width: 100%; height: 4px; overflow: hidden; background: #0a1322; box-shadow: 0 0 0 2px #060d1a; }
 .ds-fuse i { display: block; height: 100%; background: var(--cyan); transform-origin: left; transition: transform 0.25s linear; }
 .ds-dive { flex: 0 0 auto; letter-spacing: 0.12em; }
-.ds-pass {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  border: 0;
-  background: none;
-  padding: 0 2px;
-  font-size: 13px;
-  line-height: 1;
-  letter-spacing: 0.16em;
-  color: var(--drift);
-}
-.ds-pass::before { content: ""; position: absolute; inset: -6px -16px -20px; }
-.ds-pass:hover { color: var(--foam); }
-.ds-pass:disabled { opacity: 0.5; cursor: default; }
 @media (min-width: 700px) {
-  .ds-dock { padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
   .ds-input { height: 59px; font-size: 26px; }
 }
 .ds-edge { position: absolute; inset: 0; z-index: 8; pointer-events: none; box-shadow: inset 0 0 90px 18px rgba(255, 93, 143, 0.6); animation: edge-throb 0.55s var(--ease-io) infinite alternate; }
@@ -647,7 +630,7 @@ html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: calc(94px + env(safe-area-inset-bottom));
+  bottom: calc(84px + env(safe-area-inset-bottom));
   text-align: center;
   font-size: 16px;
   letter-spacing: 0.08em;
@@ -660,7 +643,7 @@ html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: calc(102px + env(safe-area-inset-bottom));
+  bottom: calc(92px + env(safe-area-inset-bottom));
   max-width: 600px;
   margin: 0 auto;
   display: flex;
@@ -683,18 +666,8 @@ html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--
 .ds-correction .arrow { color: var(--foam); }
 .ds-correction small { display: block; margin-top: 5px; font-size: 14px; letter-spacing: 0.1em; }
 @media (min-width: 700px) {
-  .ds-reject { bottom: calc(88px + env(safe-area-inset-bottom)); }
-  .ds-correction { bottom: calc(96px + env(safe-area-inset-bottom)); }
-}
-/* touch screens: a little more room under DIVE, so PASS gets a finger-sized hit area (its ::before) */
-@media (pointer: coarse) {
-  .ds-dock { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
-  .ds-reject { bottom: calc(100px + env(safe-area-inset-bottom)); }
-  .ds-correction { bottom: calc(108px + env(safe-area-inset-bottom)); }
-}
-@media (pointer: coarse) and (min-width: 700px) {
-  .ds-reject { bottom: calc(94px + env(safe-area-inset-bottom)); }
-  .ds-correction { bottom: calc(102px + env(safe-area-inset-bottom)); }
+  .ds-reject { bottom: calc(78px + env(safe-area-inset-bottom)); }
+  .ds-correction { bottom: calc(86px + env(safe-area-inset-bottom)); }
 }
 .ds-bubbles { position: absolute; left: 50%; bottom: 30px; width: 1px; height: 1px; pointer-events: none; }
 .ds-bubbles i {
@@ -939,7 +912,7 @@ html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--
 .pack:hover:not(:disabled) { transform: translateY(-3px); }
 .pack:disabled { cursor: wait; }
 .page.leaving { opacity: 0; transition: opacity 0.25s ease-in; }
-/* narrow screens: the bottom corner belongs to PASS / ← PACKS while diving, so the credit waits for the results */
+/* narrow screens: the bottom corner belongs to ← PACKS and the answer bar while diving, so the credit waits for the results */
 @media (max-width: 999px) { :is(.ds-root.view-title, .ds-root.view-dive) ~ .credit { display: none; } }
 .credit { position: fixed; z-index: 50; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 18px; letter-spacing: 0.14em; color: #a8bad2; text-shadow: 0 0 8px var(--abyss), 0 1px 2px var(--abyss); pointer-events: none; }
 .results-credit { display: none; margin: 34px 0 0; text-align: right; font-size: 18px; letter-spacing: 0.14em; color: #a8bad2; }

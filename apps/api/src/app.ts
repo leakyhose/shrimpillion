@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Services } from "./context.ts";
 import type { RoundSettings } from "./db/schema.ts";
 import {
-  getGameView, getOwnerView, listPlayerGames, nextPrompt, passPrompt, playerStats,
+  getGameView, getOwnerView, listPlayerGames, nextPrompt, playerStats,
   roundLeaderboard, startGame, submitGuess,
 } from "./services/games.ts";
 import { createPlayer, playerByToken, playerView, renamePlayer, type Player } from "./services/players.ts";
@@ -43,7 +43,6 @@ const createRoundSchema = z.discriminatedUnion("mode", [
 ]);
 
 const guessSchema = z.object({ text: z.string().trim().min(1).max(120), slot: z.number().int().min(1).optional() });
-const passSchema = z.object({ slot: z.number().int().min(1).optional() }).default({});
 
 async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.output<T>> {
   const raw = await c.req.json().catch(() => ({}));
@@ -184,11 +183,6 @@ export function createApp(s: Services, opts: { corsOrigins?: string[] } = {}) {
   app.post("/api/games/:id/guess", async (c) => {
     const { text, slot } = await body(c, guessSchema);
     return c.json(await submitGuess(s, c.req.param("id"), me(c).id, text, slot));
-  });
-
-  app.post("/api/games/:id/pass", async (c) => {
-    const { slot } = await body(c, passSchema);
-    return c.json({ game: await passPrompt(s, c.req.param("id"), me(c).id, slot) });
   });
 
   return app;

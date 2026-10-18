@@ -62,7 +62,7 @@ export const games = pgTable(
   ],
 );
 
-export type SlotStatus = "pending" | "active" | "answered" | "passed" | "timeout";
+export type SlotStatus = "pending" | "active" | "answered" | "timeout";
 
 export const gameSlots = pgTable(
   "game_slots",
