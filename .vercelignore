@@ -1,0 +1,12 @@
+# The web app is built from apps/web; keep local data and tooling out of CLI uploads.
+/research
+/data
+/docs
+/.data
+/.railway
+/.claude
+.env
+.env.*
+!.env.example
+node_modules
+dist
