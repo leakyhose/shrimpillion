@@ -2,7 +2,9 @@
 
 const MUTE_KEY = "shrimpillion-muted";
 
-let ctx: AudioContext | null = null;
+type Out = { a: AudioContext; out: GainNode };
+
+let out: Out | null = null;
 let muted = (() => {
   try {
     return localStorage.getItem(MUTE_KEY) === "1";
@@ -11,11 +13,17 @@ let muted = (() => {
   }
 })();
 
-function audio(): AudioContext | null {
+function audio(): Out | null {
   if (muted || typeof AudioContext === "undefined") return null;
-  ctx ??= new AudioContext();
-  if (ctx.state === "suspended") void ctx.resume();
-  return ctx;
+  if (!out) {
+    const a = new AudioContext();
+    const gain = a.createGain();
+    gain.gain.value = 0.75;
+    gain.connect(a.destination);
+    out = { a, out: gain };
+  }
+  if (out.a.state === "suspended") void out.a.resume();
+  return out;
 }
 
 // Browsers only start audio from a user gesture; warm it up on the first one.
@@ -31,68 +39,118 @@ export function setMuted(m: boolean) {
   }
 }
 
-/** One enveloped oscillator note, optionally gliding to another pitch. */
-function tone(a: AudioContext, o: { at?: number; freq: number; to?: number; dur: number; type?: OscillatorType; gain?: number }) {
-  const t = a.currentTime + (o.at ?? 0);
-  const osc = a.createOscillator();
-  const env = a.createGain();
-  osc.type = o.type ?? "sine";
-  osc.frequency.setValueAtTime(o.freq, t);
-  if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t + o.dur);
-  env.gain.setValueAtTime(0.0001, t);
-  env.gain.exponentialRampToValueAtTime(o.gain ?? 0.2, t + 0.012);
-  env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
-  osc.connect(env).connect(a.destination);
-  osc.start(t);
-  osc.stop(t + o.dur + 0.02);
+/** Quick linear attack, then an exponential tail. */
+function envelope(g: GainNode, t: number, attack: number, peak: number, dur: number) {
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(peak, t + attack);
+  g.gain.exponentialRampToValueAtTime(1e-4, t + attack + dur);
 }
 
-// A major pentatonic run, so pings and chimes always sound in tune with each other.
-const NOTES = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.51, 1567.98];
-const TIER_STEP: Record<string, number> = { plankton: 0, tooclever: 1, schooler: 2, rare: 3, deepcut: 4, shrimpillion: 5 };
+function filter(a: AudioContext, type: BiquadFilterType, hz: number, t: number) {
+  const f = a.createBiquadFilter();
+  f.type = type;
+  f.frequency.setValueAtTime(hz, t);
+  return f;
+}
+
+/** One oscillator note, optionally gliding from f0 to f1. */
+function tone(
+  { a, out }: Out,
+  o: { f0: number; f1?: number; dur?: number; type?: OscillatorType; attack?: number; peak?: number; lp?: number; delay?: number },
+) {
+  const { f0, f1, dur = 0.2, type = "sine", attack = 0.005, peak = 0.3, lp, delay = 0 } = o;
+  const t = a.currentTime + delay;
+  const osc = a.createOscillator();
+  osc.type = type;
+  osc.frequency.setValueAtTime(f0, t);
+  if (f1 !== undefined) osc.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t + dur);
+  const g = a.createGain();
+  envelope(g, t, attack, peak, dur);
+  (lp ? osc.connect(filter(a, "lowpass", lp, t)) : osc).connect(g).connect(out);
+  osc.start(t);
+  osc.stop(t + dur + attack + 0.05);
+}
+
+/** Filtered white noise: water, splashes, whooshes. */
+function noise(
+  { a, out }: Out,
+  o: { dur?: number; lp?: number; hp?: number; sweepTo?: number; peak?: number; attack?: number; delay?: number },
+) {
+  const { dur = 0.3, lp = 1200, hp, sweepTo, peak = 0.25, attack = 0.003, delay = 0 } = o;
+  const t = a.currentTime + delay;
+  const buf = a.createBuffer(1, Math.ceil(a.sampleRate * (dur + 0.1)), a.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource();
+  src.buffer = buf;
+  const low = filter(a, "lowpass", lp, t);
+  if (sweepTo) low.frequency.exponentialRampToValueAtTime(sweepTo, t + dur);
+  const g = a.createGain();
+  envelope(g, t, attack, peak, dur);
+  src.connect(low);
+  (hp ? low.connect(filter(a, "highpass", hp, t)) : low).connect(g).connect(out);
+  src.start(t);
+  src.stop(t + dur + 0.1);
+}
+
+const play = (fn: (o: Out) => void) => () => {
+  const o = audio();
+  if (o) fn(o);
+};
 
 export const sfx = {
-  /** Submitting a guess: a bubble. */
-  guess() {
-    const a = audio();
-    if (!a) return;
-    tone(a, { freq: 260, to: 720, dur: 0.11, gain: 0.22 });
-    tone(a, { at: 0.07, freq: 380, to: 900, dur: 0.08, gain: 0.12 });
-  },
+  /** Submitting a guess. */
+  submit: play((o) => tone(o, { f0: 1150, dur: 0.16, attack: 0.003, peak: 0.16 })),
   /** A guess that didn't match anything. */
-  reject() {
-    const a = audio();
-    if (!a) return;
-    tone(a, { freq: 150, to: 90, dur: 0.16, type: "triangle", gain: 0.25 });
-  },
-  /** The sinking answer passes a tier line: a sonar ping, higher for each line. */
-  tierLine(index: number) {
-    const a = audio();
-    if (!a) return;
-    const f = NOTES[Math.min(index, NOTES.length - 1)]!;
-    tone(a, { freq: f, dur: 0.35, gain: 0.13 });
-    tone(a, { at: 0.12, freq: f, dur: 0.3, gain: 0.04 }); // echo
-  },
-  /** Points revealed: a chime that climbs further for rarer answers. */
-  points(tier: string) {
-    const a = audio();
-    if (!a) return;
-    const top = (TIER_STEP[tier] ?? 0) + 3;
-    for (let i = 0; i <= top; i += tier === "shrimpillion" ? 1 : 2) {
-      tone(a, { at: i * 0.055, freq: NOTES[Math.min(i, NOTES.length - 1)]!, dur: 0.4, type: "triangle", gain: 0.12 });
+  reject: play((o) => {
+    noise(o, { dur: 0.22, lp: 420, peak: 0.2 });
+    tone(o, { f0: 150, f1: 62, dur: 0.36, peak: 0.22, lp: 700 });
+  }),
+  /** BEGIN DESCENT / DESCEND: water rushing past, a deep drop and a two-note bell. */
+  descend: play((o) => {
+    noise(o, { dur: 1.1, lp: 2000, sweepTo: 240, peak: 0.15 });
+    tone(o, { f0: 110, f1: 48, dur: 1.2, peak: 0.32 });
+    tone(o, { type: "triangle", f0: 784, dur: 0.5, peak: 0.12, lp: 3000 });
+    tone(o, { type: "triangle", f0: 523, dur: 0.75, peak: 0.12, lp: 3000, delay: 0.22 });
+  }),
+  /** An accepted answer starts to sink. */
+  sink: play((o) => {
+    tone(o, { f0: 1150, dur: 0.7, attack: 0.01, peak: 0.1 });
+    noise(o, { dur: 1.3, lp: 1400, sweepTo: 180, peak: 0.16 });
+    tone(o, { f0: 300, f1: 60, dur: 1.3, peak: 0.1 });
+  }),
+  /** The sinking answer passes a tier line. */
+  tierLine: play((o) => tone(o, { type: "triangle", f0: 780, f1: 1560, dur: 0.07, peak: 0.13, lp: 2500 })),
+  /** The answer lands: a soft bump for common tiers, a boom for rare ones, a fanfare for the top tier. */
+  land(tier: string) {
+    const o = audio();
+    if (!o) return;
+    if (tier === "shrimpillion") {
+      tone(o, { f0: 60, f1: 40, dur: 1.2, peak: 0.34 });
+      [784, 988, 1175, 1568].forEach((f, i) => tone(o, { type: "triangle", f0: f, dur: 0.7, peak: 0.15, lp: 3000, delay: i * 0.13 }));
+      noise(o, { dur: 1.4, lp: 2500, hp: 1200, peak: 0.05, delay: 0.3 });
+    } else if (tier === "plankton" || tier === "tooclever") {
+      tone(o, { f0: 140, f1: 70, dur: 0.25, peak: 0.28, lp: 600 });
+      noise(o, { dur: 0.14, lp: 500, peak: 0.1 });
+    } else {
+      tone(o, { f0: 80, f1: 45, dur: 0.6, peak: 0.38 });
+      noise(o, { dur: 0.7, lp: 900, sweepTo: 200, peak: 0.18, delay: 0.02 });
+      tone(o, { type: "triangle", f0: 523, dur: 0.4, peak: 0.09, delay: 0.15 });
     }
-    if (tier === "shrimpillion") tone(a, { at: 0.5, freq: NOTES[8]! * 2, dur: 0.8, gain: 0.06 });
   },
   /** Passed or timed out: nothing landed. */
-  miss() {
-    const a = audio();
-    if (!a) return;
-    tone(a, { freq: 330, to: 165, dur: 0.45, type: "triangle", gain: 0.18 });
-  },
-  /** DESCEND / BEGIN DESCENT: a soft downward whoosh. */
-  descend() {
-    const a = audio();
-    if (!a) return;
-    tone(a, { freq: 520, to: 140, dur: 0.6, gain: 0.08 });
-  },
+  miss: play((o) => {
+    tone(o, { f0: 220, f1: 52, dur: 0.7, peak: 0.24 });
+    noise(o, { dur: 0.5, lp: 400, peak: 0.14, delay: 0.05 });
+  }),
+  /** The clock is running out. */
+  tick: play((o) => {
+    tone(o, { f0: 880, dur: 0.07, peak: 0.16 });
+    tone(o, { f0: 880, dur: 0.05, peak: 0.06, delay: 0.12 });
+  }),
+  /** SURFACE: rising back up through the water. */
+  surface: play((o) => {
+    noise(o, { dur: 1.6, lp: 300, sweepTo: 3000, peak: 0.16 });
+    tone(o, { f0: 80, f1: 600, dur: 1.5, peak: 0.08 });
+  }),
 };

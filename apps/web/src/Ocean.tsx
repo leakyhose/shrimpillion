@@ -19,7 +19,7 @@ export type View = "title" | "dive" | "results";
 export type Shot =
   | { kind: "title" }
   | { kind: "prompt"; y: number }
-  | { kind: "sink"; to: number; chip: number; ms: number }
+  | { kind: "sink"; to: number; chip: number; ms: number; tier: string }
   | { kind: "landed"; y: number; miss?: boolean }
   | { kind: "results" };
 
@@ -45,18 +45,20 @@ function bezier(x1: number, y1: number, x2: number, y2: number) {
     return at(y1, y2, (lo + hi) / 2);
   };
 }
-/** Camera glide to the next prompt: ~2.2 s after a short pause. */
-const EASE_GLIDE = bezier(0.55, 0, 0.4, 1);
-/** An answer sinking: it hangs for a beat, then a long glide and a soft landing. */
-const SINK_HANG = 600;
-const EASE_FALL = bezier(0.55, 0, 0.4, 1);
-export const sinkProgress = (t: number, ms: number) => EASE_FALL((t - SINK_HANG) / (ms - SINK_HANG));
 const EASE_IO = bezier(0.65, 0, 0.35, 1);
-const easeOut = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
+const easeOut = (t: number) => 1 - (1 - clamp01(t)) ** 3;
+const easeInOutCubic = (t: number) => (t = clamp01(t)) < 0.5 ? 4 * t ** 3 : 1 - (2 - 2 * t) ** 3 / 2;
+const easeInOutSine = (t: number) => (1 - Math.cos(Math.PI * clamp01(t))) / 2;
 
-/** How long an answer takes to sink `metres` (about 3.5 s for 100 m, 4.8 s for 1,000 m). */
-export const sinkMs = (metres: number) => Math.round(3350 + 1.45 * metres);
+/** Camera glide to the next prompt, starting the moment DESCEND is pressed. */
+const DESCEND_MS = 2200;
+
+/** How long an answer takes to sink, by tier: rarer answers fall further but not much longer. */
+const SINK_MS: Record<string, number> = { plankton: 3400, tooclever: 3000, schooler: 3000, rare: 3400, deepcut: 4300, shrimpillion: 4600 };
+export const sinkMs = (tier: string) => SINK_MS[tier] ?? 3400;
+/** Plankton drifts down gently; everything else accelerates away and settles. */
+export const sinkProgress = (t: number, ms: number, tier: string) => (tier === "plankton" ? easeInOutSine : easeInOutCubic)(t / ms);
 
 /** Depth notes on the way down: alternate sides, majors are zone names. */
 const AMBIENT: [number, "L" | "R", string, boolean?][] = [
@@ -172,7 +174,7 @@ export function Ocean(props: {
             break;
           case "prompt":
             target = promptLine(w, h) - s.y;
-            k = EASE_GLIDE((t - 250) / 2200);
+            k = easeInOutCubic(t / DESCEND_MS);
             break;
           case "landed":
             target = (s.miss ? missLine(h) : landLine(h)) - s.y;
@@ -180,7 +182,7 @@ export function Ocean(props: {
             break;
           case "sink":
             // The chip falls through the world; the camera re-frames on it quickly, then rides along.
-            chipY = s.chip + (s.to - s.chip) * sinkProgress(t, s.ms);
+            chipY = s.chip + (s.to - s.chip) * sinkProgress(t, s.ms, s.tier);
             target = landLine(h) - chipY;
             k = easeOut(t / 700);
             break;
@@ -192,9 +194,9 @@ export function Ocean(props: {
         if (chipY !== null) {
           const chip = world.querySelector<HTMLElement>(".ds-chip");
           if (chip) chip.style.transform = `translate3d(-50%, ${chipY.toFixed(2)}px, 0)`;
-          world.querySelectorAll<HTMLElement>(".ds-tierline").forEach((line, i) => {
+          world.querySelectorAll<HTMLElement>(".ds-tierline").forEach((line) => {
             const passed = chipY! + 24 >= Number(line.dataset.y);
-            if (passed && !line.classList.contains("passed")) sfx.tierLine(i);
+            if (passed && !line.classList.contains("passed")) sfx.tierLine();
             line.classList.toggle("passed", passed);
           });
         }
