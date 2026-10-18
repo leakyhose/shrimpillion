@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, startGame } from "../api.ts";
+import { newDive } from "../api.ts";
 import { NameTag } from "../Diver.tsx";
 import { Wordmark } from "../Ocean.tsx";
 import { PACKS, type Pack } from "../packs.ts";
@@ -18,8 +18,7 @@ export function Home() {
     try {
       // Fade the packs out while the game is made, then the dive fades in.
       const fade = new Promise((r) => setTimeout(r, 250));
-      const { round } = await api("POST", "/api/rounds", pack.round);
-      const gameId = await startGame(round.id);
+      const gameId = await newDive(pack.round);
       await fade;
       navigate(`/g/${gameId}`);
     } catch (e) {

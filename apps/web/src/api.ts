@@ -90,6 +90,12 @@ export async function startGame(roundId: string): Promise<string> {
   return r.game.id;
 }
 
+/** Draw a fresh round (e.g. a pack's random dive), start it, and return the game id. */
+export async function newDive(round: Record<string, unknown>): Promise<string> {
+  const r = await api<{ round: { id: string } }>("POST", "/api/rounds", round);
+  return startGame(r.round.id);
+}
+
 export function fullUrl(path: string) {
   return window.location.origin + path;
 }

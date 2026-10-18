@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { TIER_LABELS, api, fullUrl, startGame, useApi } from "../api.ts";
+import { TIER_LABELS, api, fullUrl, newDive, startGame, useApi } from "../api.ts";
 import { ScoreCurve } from "../Curve.tsx";
 import { type MascotSpot, Ocean, PX_PER_M, type Shot, sinkMs, sinkProgress, Wordmark } from "../Ocean.tsx";
 import { packForRound } from "../packs.ts";
@@ -85,7 +85,7 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
   const sinking = phase === "landed" && !!landing?.sinking && landing.slot === last?.slot;
   const y = depthPx(game.score);
   const sinkFor = sinking ? landing!.ms : 0;
-  const shownDepth = useTween(game.score * 10, sinking ? sinkFor : 300, sinking ? (k) => sinkProgress(k * sinkFor, sinkFor) : undefined);
+  const shownDepth = useTween(game.score * 10, sinking ? sinkFor : 300, sinking ? (k) => sinkProgress(k * sinkFor, sinkFor, landing!.tier) : undefined);
   const shownScore = useTween(sinking ? landing!.fromScore : game.score, 450);
   const quip = landing && last && landing.slot === last.slot ? landing.quip : null;
   const missed = phase === "landed" && last && last.status !== "answered";
@@ -112,7 +112,7 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
   useEffect(() => {
     const w = was.current;
     was.current = { phase, sinking };
-    if (w.sinking && !sinking && last?.status === "answered") sfx.points(last.tier);
+    if (w.sinking && !sinking && last?.status === "answered") sfx.land(last.tier);
     else if (w.phase === "prompt" && phase === "landed" && missed) sfx.miss();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, sinking]);
@@ -141,8 +141,9 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
     try {
       const r = await api("POST", `/api/games/${game.id}/guess`, { text, slot });
       if (r.result === "accept") {
+        sfx.sink();
         const gained = Math.max(1, r.game.score - game.score);
-        const ms = sinkMs(gained * 10);
+        const ms = sinkMs(r.answer.tier);
         // The chip starts at most 180 px under the card's depth line.
         const chip = y + Math.min(180, depthPx(gained));
         setLanding({ slot, quip: r.answer.quip, fromScore: game.score, sinking: true, tier: r.answer.tier, answer: r.answer.name, ms, chip });
@@ -174,7 +175,7 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
         : phase === "prompt"
           ? { kind: "prompt", y }
           : sinking
-            ? { kind: "sink", to: y, chip: landing!.chip, ms: landing!.ms }
+            ? { kind: "sink", to: y, chip: landing!.chip, ms: landing!.ms, tier: landing!.tier }
             : { kind: "landed", y, miss: !!missed };
   const mascot: MascotSpot =
     phase === "begin" ? "title" : phase === "results" ? "results" : phase === "prompt" ? (previewing ? "card" : "dock") : sinking ? "chase" : last?.tier === "shrimpillion" ? "icon" : "perch";
@@ -274,7 +275,14 @@ function Play({ game, setGame, reload }: { game: any; setGame: (g: any) => void;
       {phase === "landed" && !sinking && last && (
         <div className="ds-next-wrap">
           {game.status === "finished" ? (
-            <button className="ds-next-btn" onClick={() => setSurfaced(true)} autoFocus>
+            <button
+              className="ds-next-btn"
+              onClick={() => {
+                sfx.surface();
+                setSurfaced(true);
+              }}
+              autoFocus
+            >
               SURFACE ▲
             </button>
           ) : (
@@ -374,8 +382,14 @@ function ActivePrompt(props: {
   const left = endsAt - now;
   const over = left <= 0;
   const remaining = Math.max(0, Math.ceil(left / 1000));
-  const urgent = !inPreview && remaining <= 5;
   const duration = endsAt - startsAt;
+  const urgent = !inPreview && remaining <= 5;
+  // Three ticks over the last fifth of the clock.
+  const elapsed = (now - startsAt) / duration;
+  const tick = !inPreview && elapsed > 0.8 && elapsed < 1 ? Math.ceil((1 - elapsed) * 15) : 0;
+  useEffect(() => {
+    if (tick) sfx.tick();
+  }, [tick]);
 
   const onPreview = props.onPreview;
   // The mascot heads for the dock a moment before the clock starts.
@@ -398,7 +412,7 @@ function ActivePrompt(props: {
     e.preventDefault();
     const t = text.trim();
     if (!t || busy || over || inPreview) return;
-    sfx.guess();
+    sfx.submit();
     const r = await props.onGuess(t);
     if (r?.result === "reject") sfx.reject();
     if (r?.result === "reject") setFeedback((f) => ({ kind: "reject", text: t, n: (f?.kind === "reject" ? f.n : 0) + 1 }));
@@ -639,39 +653,68 @@ function ResultsFrame({ eyebrow, children }: { eyebrow: string; children: ReactN
 
 function Results({ game }: { game: any }) {
   const pack = packForRound(game.round);
+  const navigate = useNavigate();
   const url = fullUrl(`/g/${game.id}`);
-  const [copied, setCopied] = useState(false);
-  const text = `Shrimpillion · ${pack.title} 🦐\n${game.score}\n\n${game.slots.map((s: any) => TIER_EMOJI[s.status === "answered" ? s.tier : "miss"]).join("")}\n${url}`;
+  const [copied, setCopied] = useState<"link" | "result" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const emoji = game.slots.map((s: any) => TIER_EMOJI[s.status === "answered" ? s.tier : "miss"]).join("");
+  const text = `Shrimpillion · ${pack.title} 🦐\n${game.score}\n\n${emoji}\nDive the same prompts: ${url}`;
 
-  async function copy() {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  async function copy(what: "link" | "result", value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1600);
+    } catch {
+      setError("Couldn't copy. Select the link above instead.");
+    }
   }
+  // The system share sheet on phones and tablets; on desktop (where it's often missing or silent), copy the link.
   async function share() {
-    if (navigator.share) {
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
       try {
-        await navigator.share({ text });
-      } catch {
-        /* dismissed */
+        await navigator.share({ title: "Shrimpillion", text: `I scored ${game.score} on Shrimpillion. Dive the same prompts:`, url });
+        return;
+      } catch (e) {
+        if ((e as DOMException).name === "AbortError") return;
       }
-    } else await copy();
+    }
+    await copy("link", url);
+  }
+  async function again() {
+    setBusy(true);
+    try {
+      navigate(`/g/${await newDive(pack.round)}`);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
     <ResultsFrame eyebrow={`${pack.title} · dive complete`}>
       <ScoreBlock game={game} />
-      <ScoreCurve score={game.score} maxScore={game.maxScore} />
+      <ScoreCurve roundId={game.roundId} score={game.score} />
       <RankLine roundId={game.roundId} />
+      <section className="share-box">
+        <div className="share-title">Challenge a friend</div>
+        <p className="share-how">
+          Send this link. Whoever opens it dives <b>the exact same {game.slots.length} prompts</b>, then you can compare scores.
+        </p>
+        <div className="share-link">
+          <a href={url}>{url.replace(/^https?:\/\//, "")}</a>
+          <button className="btn-box" onClick={() => copy("link", url)}>{copied === "link" ? "COPIED ✓" : "COPY LINK"}</button>
+        </div>
+        <div className="share-row">
+          <button className="btn-pink" onClick={share}>{copied === "link" ? "LINK COPIED ✓" : "SHARE LINK"}</button>
+          <button className="btn-quiet" onClick={() => copy("result", text)}>{copied === "result" ? "COPIED ✓" : "COPY RESULT"}</button>
+        </div>
+      </section>
+      <button className="btn-begin dive-again" onClick={again} disabled={busy}>{busy ? "DESCENDING…" : "▼ NEW DIVE ▼"}</button>
+      {error && <p className="error">{error}</p>}
       <DiveLog slots={game.slots} />
       <Bearing score={game.score} />
-      <div className="share-row">
-        <button className="btn-pink" onClick={copy}>{copied ? "COPIED ✓" : "COPY RESULT"}</button>
-        <button className="btn-quiet" onClick={share}>SHARE…</button>
-      </div>
-      <p className="share-link">
-        Your result link. Friends who open it dive the same prompts: <a href={url}>{url}</a>
-      </p>
       <Catch slots={game.slots} />
       <div className="foot-links">
         <div className="row">
