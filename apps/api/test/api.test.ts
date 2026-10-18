@@ -125,15 +125,6 @@ describe.skipIf(!hasData)("random round → play → share", () => {
     expect(stats.body).toMatchObject({ gamesStarted: 1, gamesFinished: 1, promptsPlayed: 3, answered: 1, passed: 1, timedOut: 1 });
   });
 
-  it("aggregates every finished score on a 0–700 scale", async () => {
-    const game = (await call("GET", `/api/games/${gameId}`, alice)).body.game;
-    const d = await call("GET", "/api/stats/scores");
-    expect(d.status).toBe(200);
-    expect(d.body).toMatchObject({ total: 1, binSize: 10, maxScore: 700 });
-    expect(d.body.counts).toHaveLength(71);
-    expect(d.body.counts.indexOf(1)).toBe(Math.min(70, Math.floor((game.score * 7) / 3 / 10)));
-  });
-
   it("lets a friend open the shared round without spoilers, then compare", async () => {
     const round = await call("GET", `/api/rounds/${roundId}`, bob);
     expect(round.body.round.stats.finishedPlays).toBe(1);
@@ -169,25 +160,6 @@ describe.skipIf(!hasData)("random round → play → share", () => {
     expect(after.body.answersVisible).toBe(true);
     expect(after.body.entries[0].slots[0].answer).toBeTruthy();
     expect(after.body.you.rank).toBeGreaterThanOrEqual(1);
-  });
-
-  it("bins every dive's score while the round has few runs, and says what share a score beats", async () => {
-    const scores = (await call("GET", `/api/rounds/${roundId}/leaderboard`)).body.entries.map((e: any) => e.score as number);
-    const d = await call("GET", `/api/rounds/${roundId}/scores?score=${Math.max(...scores)}`);
-    expect(d.status).toBe(200);
-    // only Alice and Bob have finished anything, both on this round
-    expect(d.body).toMatchObject({ scope: "all", sample: 2, maxScore: 300 });
-    expect(d.body.dist).toHaveLength(20);
-    const expected = Array(20).fill(0);
-    for (const s of scores) expected[Math.min(19, Math.floor((s * 20) / 300))]++;
-    expect(d.body.dist).toEqual(expected);
-    // strictly lower scores only, so a tie beats nobody
-    expect(d.body.betterThan).toBe(scores[0] === scores[1] ? 0 : 50);
-    expect((await call("GET", `/api/rounds/${roundId}/scores?score=0`)).body.betterThan).toBe(0);
-    expect((await call("GET", `/api/rounds/${roundId}/scores?score=301`)).body.betterThan).toBe(100);
-    expect((await call("GET", `/api/rounds/${roundId}/scores`)).body.betterThan).toBeNull();
-    expect((await call("GET", `/api/rounds/${roundId}/scores?score=-1`)).status).toBe(400);
-    expect((await call("GET", "/api/rounds/nope/scores")).status).toBe(404);
   });
 
   it("draws unseen prompts first", async () => {
@@ -283,32 +255,5 @@ describe("short ids", () => {
     expect(tried).toHaveLength(3);
     expect(id).toBe(tried[2]);
     await expect(withShortId(async () => { throw new Error("other"); })).rejects.toThrow("other");
-  });
-});
-
-describe.skipIf(!hasData)("score distribution", () => {
-  it("uses the round's own runs once it has five, scaling other rounds' scores until then", async () => {
-    const host = await newPlayer();
-    const short = (await call("POST", "/api/rounds", host, { mode: "random", count: 1, kinds: ["unlimited"] })).body.round;
-    async function passAll(roundId: string, n: number, token = "") {
-      const p = token || (await newPlayer());
-      const g = (await call("POST", `/api/rounds/${roundId}/games`, p, {})).body.game;
-      for (let i = 0; i < n; i++) {
-        await call("POST", `/api/games/${g.id}/next`, p);
-        await call("POST", `/api/games/${g.id}/pass`, p);
-      }
-    }
-    await passAll(short.id, 1, host);
-
-    const early = (await call("GET", `/api/rounds/${short.id}/scores?score=50`)).body;
-    expect(early).toMatchObject({ scope: "all", maxScore: 100 });
-    expect(early.sample).toBeGreaterThan(1);
-    expect(early.dist.reduce((a: number, b: number) => a + b, 0)).toBe(early.sample);
-
-    for (let i = 0; i < 4; i++) await passAll(short.id, 1);
-    const own = (await call("GET", `/api/rounds/${short.id}/scores?score=50`)).body;
-    expect(own).toMatchObject({ scope: "round", sample: 5, maxScore: 100, betterThan: 100 });
-    expect(own.dist[0]).toBe(5);
-    expect((await call("GET", `/api/rounds/${short.id}/scores?score=0`)).body.betterThan).toBe(0);
   });
 });

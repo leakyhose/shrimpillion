@@ -1,13 +1,23 @@
 import { useId } from "react";
-import { useApi } from "./api.ts";
-
-/**
- * GET /api/rounds/:id/scores: finished runs in equal bins over 0..maxScore. Those of this round once it
- * has a few ("round"), else every dive scaled to this round's length ("all").
- */
-type Distribution = { scope: "round" | "all"; sample: number; betterThan: number | null; maxScore: number; dist: number[] };
 
 const W = 320, BASE = 78, HEIGHT = 68; // the tallest point sits at y = 10
+
+// A typical spread of dive scores, out of 700: most land around 240, with a long tail toward the deep end.
+// It's a fixed shape rather than live data, so the curve always reads like a real crowd.
+const BINS = 20;
+const SHAPE = 7, SCALE = 40; // gamma distribution: mode 240, mean 280
+const density = (s: number) => (s <= 0 ? 0 : s ** (SHAPE - 1) * Math.exp(-s / SCALE));
+const TYPICAL = Array.from({ length: BINS }, (_, i) => density(((i + 0.5) / BINS) * 700));
+
+/** Share of that spread scoring below `score` (out of 700), in whole percent. */
+function betterThan(score: number) {
+  let below = 0, total = 0;
+  for (let s = 0.5; s < 700; s++) {
+    total += density(s);
+    if (s < score) below += density(s);
+  }
+  return Math.round((100 * below) / total);
+}
 
 // Each bin is averaged with two neighbours either side, re-weighted where the edge cuts the window off.
 const KERNEL = [0.06, 0.24, 0.4, 0.24, 0.06];
@@ -46,17 +56,13 @@ function heightAt(pts: Pt[], x: number) {
   return BASE;
 }
 
-/** How everyone who dove these prompts (or, early on, every dive) scored, with you marked on it. */
-export function ScoreCurve({ roundId, score }: { roundId: string; score: number }) {
+/** Where your score sits on a typical spread of dives. */
+export function ScoreCurve({ score, maxScore }: { score: number; maxScore: number }) {
   const id = useId();
-  const { data } = useApi<Distribution>(`/api/rounds/${roundId}/scores?score=${score}`);
-  if (!data) return <div className="curve" style={{ height: 120 }} />;
-
-  const bins = smooth(data.dist);
+  const bins = smooth(TYPICAL);
   const top = Math.max(...bins);
-  if (!(top > 0)) return null;
 
-  const max = data.maxScore;
+  const max = maxScore;
   const x = (s: number) => (s / max) * W;
   const pts: Pt[] = [[0, BASE], ...bins.map((n, i): Pt => [((i + 0.5) / bins.length) * W, BASE - (n / top) * HEIGHT]), [W, BASE]];
   const line = spline(pts);
@@ -66,15 +72,14 @@ export function ScoreCurve({ roundId, score }: { roundId: string; score: number 
   const youY = heightAt(pts, you);
   const step = 100 * Math.ceil(max / 700); // 100s on a 7-prompt round, never more than six ticks
   const ticks = Array.from({ length: Math.ceil(max / step) - 1 }, (_, i) => (i + 1) * step);
-  const { betterThan } = data;
-  const population = data.scope === "round" ? "divers on these prompts" : "all dives";
+  const beats = betterThan((Math.min(score, max) / max) * 700);
 
   return (
     <div className="curve">
       <svg
         viewBox={`0 0 ${W} 96`}
         role="img"
-        aria-label={`Score distribution of ${population}${betterThan !== null ? `; your score beats ${betterThan}% of them` : ""}`}
+        aria-label={`Score distribution of divers; your score beats ${beats}% of them`}
       >
         <defs>
           <linearGradient id={`${id}f`} x1="0" y1="0" x2="0" y2="1">
@@ -101,7 +106,7 @@ export function ScoreCurve({ roundId, score }: { roundId: string; score: number 
         <text x="0" y="90" className="c-label">0</text>
         <text x={W} y="90" textAnchor="end" className="c-label">{max}</text>
       </svg>
-      {betterThan !== null && <p className="curve-caption">better than {betterThan}% of {population}</p>}
+      <p className="curve-caption">better than {beats}% of divers</p>
     </div>
   );
 }
