@@ -1,0 +1,10 @@
+# `railway up` also applies .gitignore; rules here take precedence over it.
+
+# The prompt bank is gitignored (it is never committed) but the API needs it at runtime.
+!data/bank/
+
+# Not needed by the API.
+research/
+docs/
+.data/
+apps/web/dist/
