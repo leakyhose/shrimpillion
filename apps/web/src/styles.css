@@ -22,7 +22,15 @@
 }
 
 * { box-sizing: border-box; }
-html { background: var(--abyss); }
+html {
+  background: var(--abyss);
+  /* no font inflation when a phone turns sideways, no grey flash on tap */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+/* while diving: no pull-to-refresh or rubber-banding of the page behind the stage */
+html:has(.ds-root) { overscroll-behavior: none; }
 body {
   margin: 0;
   min-height: 100svh;
@@ -35,6 +43,8 @@ body {
 }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
+/* taps act at once (no double-tap-to-zoom wait); pinch zoom still works */
+button, a, input, .ds-root { touch-action: manipulation; }
 a { color: inherit; }
 a:has(> .wordmark) { text-decoration: none; }
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
@@ -68,12 +78,18 @@ a:has(> .wordmark) { text-decoration: none; }
   background: var(--abyss);
   /* where the prompt card's depth line sits (the camera in Ocean.tsx uses the same numbers) */
   --anchor: min(177px, 30%);
+  /* where a landed answer's depth line sits; Ocean.tsx sets both of these to the camera's exact numbers */
+  --land: calc(50% - 62px);
+  user-select: none;
+  -webkit-user-select: none;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
   animation: ds-arrive 0.6s ease-out both;
 }
 @keyframes ds-arrive { from { opacity: 0; } }
 @media (min-width: 700px) { .ds-root { --anchor: min(210px, 30%); } }
+/* The on-screen keyboard is up (viewport.ts): the stage and popups fit the part of the screen still visible. */
+html.kb :is(.ds-root, .modal) { top: var(--vv-top); bottom: auto; height: var(--vv-h); }
 .ds-stage { position: absolute; inset: 0; overflow: clip; }
 .ds-stage.shake { animation: shake 0.5s linear; }
 @keyframes shake {
@@ -114,6 +130,9 @@ a:has(> .wordmark) { text-decoration: none; }
 @keyframes cloud-drift { from { translate: 0 0; } 50% { translate: 30px 0; } to { translate: 0 0; } }
 
 .ds-title-block { position: absolute; left: 0; right: 0; top: -336px; padding: 0 16px; transition: opacity 0.8s; }
+/* a phone on its side: a smaller title, so it fits between the top edge and the BEGIN button */
+.short .ds-title-block { top: -236px; }
+.short .ds-title-block .wordmark { font-size: min(64px, calc((100vw - 32px) / 6.9)); }
 .view-dive .ds-title-block { opacity: 0; }
 .view-results .ds-title-block { opacity: 0.14; }
 .tagline {
@@ -293,14 +312,21 @@ a:has(> .wordmark) { text-decoration: none; }
   top: calc(50% + 150px);
   transition: left 1.3s cubic-bezier(0.45, 0, 0.2, 1), top 1.3s cubic-bezier(0.45, 0, 0.2, 1), width 0.5s var(--ease-out), height 0.5s var(--ease-out);
   filter: drop-shadow(0 0 10px rgba(255, 93, 143, 0.55));
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .ds-mascot.at-card { left: min(calc(50% + 249px), calc(100% - 96px)); top: calc(var(--anchor) + 40px); }
 .ds-mascot.at-dock { left: clamp(16px, 4vw, 64px); top: calc(100% - 205px); }
 .ds-mascot.at-chase { left: calc(50% + 80px); top: calc(50% - 150px); transition-duration: 0.9s; }
 .ds-mascot.at-perch { left: max(16px, calc(50% - 450px)); top: calc(var(--anchor) - 12px); }
 /* centred on the landed banner's icon slot (banner centre is 50% - 21px on phones, 50% - 24px wider) */
-.ds-mascot.at-icon { width: 66px; height: 66px; left: calc(50% - 54px); top: calc(50% - 166px); transition-duration: 0.8s; }
-@media (min-width: 700px) { .ds-mascot.at-icon { width: 88px; height: 88px; left: calc(50% - 68px); top: calc(50% - 186px); } }
+.ds-mascot.at-icon { width: 66px; height: 66px; left: calc(50% - 54px); top: calc(var(--land) - 104px); transition-duration: 0.8s; }
+@media (min-width: 700px) { .ds-mascot.at-icon { width: 88px; height: 88px; left: calc(50% - 68px); top: calc(var(--land) - 124px); } }
+/* short screens: a smaller icon slot (see .short .ds-landed), and no room for the shrimp beside the dock */
+.short .ds-mascot.at-icon { width: 44px; height: 44px; left: calc(50% - 43px); top: calc(var(--land) - 82px); }
+@media (min-width: 700px) { .short .ds-mascot.at-icon { left: calc(50% - 46px); } }
+.short .ds-mascot.at-dock { left: -90px; }
 .view-results .ds-mascot { z-index: 13; left: min(80%, calc(50% + 260px)); top: 70px; }
 .ds-mascot.gold { filter: drop-shadow(0 0 12px rgba(255, 209, 102, 0.8)); }
 .ds-mascot::before {
@@ -313,7 +339,9 @@ a:has(> .wordmark) { text-decoration: none; }
   transition: opacity 1s;
 }
 .ds-mascot.gold::before { opacity: 1; }
-.ds-mascot-swim { width: 100%; height: 100%; }
+.ds-mascot-swim { width: 100%; height: 100%; transition: scale 0.35s ease-in-out; }
+/* the sprite faces left; on the left-hand spots it turns round to face the middle */
+.ds-mascot:is(.at-dock, .at-perch) .ds-mascot-swim { scale: -1 1; }
 .view-dive .ds-mascot-swim { animation: idle 9s ease-in-out infinite; }
 .ds-mascot-sprite { display: block; width: 100%; height: 100%; animation: bob 2.6s ease-in-out infinite; }
 @keyframes bob { 50% { transform: translateY(-5px) rotate(-6deg); } }
@@ -333,6 +361,10 @@ a:has(> .wordmark) { text-decoration: none; }
   animation: blub 11s steps(1) infinite 4s;
 }
 @keyframes blub { 0% { opacity: 1; } 12% { opacity: 0; } }
+.ds-blub.tapped { animation: blub-pop 0.95s ease-out both; }
+@keyframes blub-pop { 0% { opacity: 1; transform: translateY(4px) scale(0.8); } 25% { transform: translateY(-4px) scale(1.1); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }
+.ds-mascot.poked .ds-mascot-sprite { animation: roll 0.95s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes roll { 0% { transform: rotate(0); } 60% { transform: rotate(-380deg) scale(1.08); } 100% { transform: rotate(-360deg); } }
 
 /* ── HUD & buttons ──────────────────────────────────── */
 .ds-hud {
@@ -364,6 +396,8 @@ a:has(> .wordmark) { text-decoration: none; }
 .ds-pod .label { font-size: 10px; line-height: 16px; letter-spacing: 0.3em; color: var(--drift); }
 .ds-pod.right { text-align: right; }
 .ds-mute { position: absolute; z-index: 25; top: 72px; right: 14px; padding: 6px; border: 0; background: rgba(5, 10, 20, 0.55); color: var(--drift); line-height: 0; }
+/* a finger-sized hit area around the small icon */
+.ds-mute::before { content: ""; position: absolute; inset: -8px -8px -8px -8px; }
 .ds-mute svg { width: 20px; height: 16px; }
 .ds-mute:hover { color: var(--cyan); }
 .ds-pod .num { font-size: 25px; line-height: 1; color: var(--cyan); text-shadow: 0 0 12px rgba(77, 227, 255, 0.55); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -430,7 +464,8 @@ a:has(> .wordmark) { text-decoration: none; }
   font-size: 17px;
   display: inline-block;
 }
-.btn-box { font-size: 13px; color: #a8bad2; padding: 7px 12px 5px; background: rgba(5, 10, 20, 0.5); }
+.btn-box { position: relative; font-size: 13px; color: #a8bad2; padding: 7px 12px 5px; background: rgba(5, 10, 20, 0.5); }
+.btn-box::before { content: ""; position: absolute; inset: -7px -4px; }
 .btn-quiet:hover, .btn-box:hover { box-shadow: inset 0 0 0 2px var(--cyan); }
 
 /* ── title screen ───────────────────────────────────── */
@@ -481,6 +516,9 @@ a:has(> .wordmark) { text-decoration: none; }
   text-shadow: 0 0 16px rgba(232, 241, 255, 0.25), 2px 0 0 rgba(255, 93, 143, 0.18), -2px 0 0 rgba(77, 227, 255, 0.18);
 }
 .ds-card .hint { font-size: 13px; letter-spacing: 0.14em; color: var(--drift); }
+/* short screens (keyboard up, phone on its side): a tighter card so it clears the answer dock */
+.ds-root.short .ds-card { padding: 12px 16px 10px; }
+.ds-root.short .ds-card .prompt { margin: 4px 0 6px; font-size: 26px; }
 .ds-card .hint b { font-weight: normal; font-size: 1.25em; }
 @media (min-width: 700px) {
   .ds-card { width: 480px; left: calc(50% - 264px); right: auto; padding: 22px 26px 20px; }
@@ -560,6 +598,8 @@ a:has(> .wordmark) { text-decoration: none; }
   display: block;
   width: 100%;
   height: 53px;
+  -webkit-user-select: text;
+  user-select: text;
   padding: 9px 10px 7px;
   font-size: 22px;
   letter-spacing: 0.04em;
@@ -587,6 +627,7 @@ a:has(> .wordmark) { text-decoration: none; }
   letter-spacing: 0.16em;
   color: var(--drift);
 }
+.ds-pass::before { content: ""; position: absolute; inset: -6px -16px -20px; }
 .ds-pass:hover { color: var(--foam); }
 .ds-pass:disabled { opacity: 0.5; cursor: default; }
 @media (min-width: 700px) {
@@ -645,6 +686,16 @@ a:has(> .wordmark) { text-decoration: none; }
   .ds-reject { bottom: calc(88px + env(safe-area-inset-bottom)); }
   .ds-correction { bottom: calc(96px + env(safe-area-inset-bottom)); }
 }
+/* touch screens: a little more room under DIVE, so PASS gets a finger-sized hit area (its ::before) */
+@media (pointer: coarse) {
+  .ds-dock { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+  .ds-reject { bottom: calc(100px + env(safe-area-inset-bottom)); }
+  .ds-correction { bottom: calc(108px + env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) and (min-width: 700px) {
+  .ds-reject { bottom: calc(94px + env(safe-area-inset-bottom)); }
+  .ds-correction { bottom: calc(102px + env(safe-area-inset-bottom)); }
+}
 .ds-bubbles { position: absolute; left: 50%; bottom: 30px; width: 1px; height: 1px; pointer-events: none; }
 .ds-bubbles i {
   position: absolute;
@@ -695,6 +746,9 @@ a:has(> .wordmark) { text-decoration: none; }
   z-index: 6;
   top: 0;
   left: calc(50% - 24px);
+  /* one line when it fits; a long answer wraps instead of running off both edges */
+  width: max-content;
+  max-width: calc(100vw - 96px);
   will-change: transform;
 }
 @media (min-width: 700px) { .ds-chip { left: 50%; } }
@@ -704,7 +758,8 @@ a:has(> .wordmark) { text-decoration: none; }
   padding: 8px 16px 6px;
   font-size: 24px;
   letter-spacing: 0.06em;
-  white-space: nowrap;
+  text-align: center;
+  overflow-wrap: anywhere;
   color: var(--tc);
   text-shadow: 0 0 10px var(--tc);
   background: rgba(16, 29, 51, 0.95);
@@ -758,6 +813,15 @@ a:has(> .wordmark) { text-decoration: none; }
   .ds-landed .tpts { font-size: 28px; }
   .ds-landed .tsub { font-size: 17px; }
 }
+/* short screens: a smaller icon so the banner clears the HUD (the camera's landLine moves to match) */
+.ds-root.short .ds-landed:not(.miss) { margin-top: -82px; }
+.ds-root.short .ds-landed .icon { width: 44px; height: 44px; }
+.ds-root.short .ds-landed .tname { font-size: 32px; }
+.ds-root.short .ds-landed .tans { font-size: 19px; }
+.ds-root.short .ds-landed .tpts { font-size: 22px; }
+.ds-root.short .ds-landed .tsub { font-size: 14px; }
+/* tiny: the HUD and mute step aside so the prompt and the dock both fit */
+.ds-root.tiny .ds-hud, .ds-root.tiny .ds-mute { opacity: 0; transform: translateY(-80px); pointer-events: none; }
 .ds-next-wrap {
   position: absolute;
   z-index: 30;
@@ -782,7 +846,10 @@ a:has(> .wordmark) { text-decoration: none; }
   z-index: 25;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  -webkit-user-select: text;
+  user-select: text;
 }
 .results .btn-begin { font-size: 20px; padding-left: 12px; padding-right: 12px; }
 .results-inner { width: min(450px, calc(100% - 40px)); margin: 0 auto; padding: 22px 0 60px; animation: fade-up 0.6s ease-out; }
@@ -824,6 +891,8 @@ a:has(> .wordmark) { text-decoration: none; }
 .share-link .btn-box { flex: none; }
 .share-row { margin-top: 10px; display: flex; gap: 10px; }
 .share-row > * { flex: 1; font-size: 18px; }
+/* narrow phones: keep SHARE LINK / COPY RESULT on one line each */
+@media (max-width: 400px) { .share-row > * { font-size: 16px; letter-spacing: 0.08em; padding-left: 8px; padding-right: 8px; } }
 .results .dive-again { margin-top: 26px; animation: none; }
 .catch { list-style: none; margin: 8px 0 0; padding: 0; }
 .catch li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--hairline); }
@@ -873,7 +942,12 @@ a:has(> .wordmark) { text-decoration: none; }
 /* narrow screens: the bottom corner belongs to PASS / ← PACKS while diving, so the credit waits for the results */
 @media (max-width: 999px) { :is(.ds-root.view-title, .ds-root.view-dive) ~ .credit { display: none; } }
 .credit { position: fixed; z-index: 50; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 18px; letter-spacing: 0.14em; color: #a8bad2; text-shadow: 0 0 8px var(--abyss), 0 1px 2px var(--abyss); pointer-events: none; }
-.credit b { font-weight: normal; color: var(--foam); text-shadow: -1px 1px 0 var(--pink), 1px -1px 0 rgba(77, 227, 255, 0.85), 0 0 10px rgba(77, 227, 255, 0.35); }
+.results-credit { display: none; margin: 34px 0 0; text-align: right; font-size: 18px; letter-spacing: 0.14em; color: #a8bad2; }
+@media (max-width: 699px) {
+  .ds-root.view-results ~ .credit { display: none; }
+  .results-credit { display: block; }
+}
+:is(.credit, .results-credit) b { font-weight: normal; color: var(--foam); text-shadow: -1px 1px 0 var(--pink), 1px -1px 0 rgba(77, 227, 255, 0.85), 0 0 10px rgba(77, 227, 255, 0.35); }
 .pack-art { position: relative; height: 170px; overflow: hidden; background: linear-gradient(180deg, #0d1c3d 0%, #1b3c74 45%, #1f5a8a 46%, #12355c 100%); }
 .pack-art .stars { position: absolute; inset: 0 0 55% 0; background-image: radial-gradient(1px 1px at 20px 20px, #fff, transparent), radial-gradient(1px 1px at 90px 45px, #cfe6f3, transparent), radial-gradient(1.5px 1.5px at 150px 15px, #ffd166, transparent); background-size: 170px 70px; opacity: 0.8; }
 .pack-art .moon { position: absolute; left: 12%; top: 18px; width: 30px; height: 30px; background: #fff1c4; box-shadow: 0 0 22px #ffd16699; clip-path: polygon(30% 0, 70% 0, 70% 10%, 90% 10%, 90% 30%, 100% 30%, 100% 70%, 90% 70%, 90% 90%, 70% 90%, 70% 100%, 30% 100%, 30% 90%, 10% 90%, 10% 70%, 0 70%, 0 30%, 10% 30%, 10% 10%, 30% 10%); }
@@ -918,7 +992,8 @@ a:has(> .wordmark) { text-decoration: none; }
 .page th { font-weight: normal; text-align: left; font-size: 12px; letter-spacing: 0.2em; color: var(--drift); padding: 6px 6px; border-bottom: 1px dashed var(--hairline); }
 .page td { padding: 7px 6px; border-bottom: 1px solid var(--hairline); vertical-align: top; color: var(--foam); }
 .page tr.mine td { background: rgba(255, 93, 143, 0.12); }
-.table-scroll { overflow-x: auto; }
+.table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.table-scroll td:nth-child(2) { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-sum { margin: 0; font-size: 15px; letter-spacing: 0.1em; }
 .dive-card { display: block; margin-top: 16px; padding: 12px 14px 10px; text-decoration: none; box-shadow: inset 0 0 0 2px var(--ring); background: rgba(11, 21, 38, 0.6); transition: box-shadow 0.15s; }
 .dive-card:hover { box-shadow: inset 0 0 0 2px var(--cyan); }

@@ -143,6 +143,12 @@ export const sfx = {
     tone(o, { f0: 220, f1: 52, dur: 0.7, peak: 0.24 });
     noise(o, { dur: 0.5, lp: 400, peak: 0.14, delay: 0.05 });
   }),
+  /** Tapping the shrimp: a bubble at a slightly different pitch each time. */
+  blub: play((o) => {
+    const k = 0.85 + 0.45 * Math.random();
+    tone(o, { f0: 260 * k, f1: 720 * k, dur: 0.13, peak: 0.22, lp: 2200 });
+    noise(o, { dur: 0.05, lp: 1800, hp: 700, peak: 0.05 });
+  }),
   /** The clock is running out. */
   tick: play((o) => {
     tone(o, { f0: 880, dur: 0.07, peak: 0.16 });

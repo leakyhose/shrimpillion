@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { sfx } from "./sound.ts";
 import { Boat, Cloud, Fish, Shrimp } from "./sprites.tsx";
 
@@ -24,10 +24,20 @@ export type Shot =
   | { kind: "results" };
 
 /** Where a framed depth line sits on screen (px from the top), for a viewport of w × h. */
-const promptLine = (w: number, h: number) => Math.min(w < 700 ? 177 : 210, h * 0.3);
 const titleLine = (h: number) => h / 2 + 90;
-const landLine = (h: number) => h / 2 - 62;
-const missLine = (h: number) => h / 2 - 142;
+/**
+ * Short screens (a phone on its side, or the on-screen keyboard up) pull the prompt card up under the HUD
+ * and the landed banner down from it, sliding smoothly from the normal framing below about 560 px.
+ */
+const SHORT = 560;
+const TINY = 315;
+const promptLine = (w: number, h: number) => {
+  // Tiny (a sideways phone with the keyboard up): the HUD steps aside and the prompt text goes right to the top.
+  const underHud = (w < 700 ? 70 : 82) - Math.min(1, Math.max(0, (TINY + 30 - h) / 30)) * (w < 700 ? 100 : 112);
+  return Math.min(w < 700 ? 177 : 210, h * 0.3, Math.max(underHud, underHud + (h - 380) * 0.55));
+};
+const landLine = (h: number) => h / 2 - 62 + Math.max(0, SHORT - h) * 0.2;
+const missLine = (h: number) => h / 2 - 142 + Math.max(0, SHORT - h) * 0.45;
 
 /** A CSS-style cubic-bezier easing, solved by bisection. */
 function bezier(x1: number, y1: number, x2: number, y2: number) {
@@ -136,7 +146,7 @@ export function Ocean(props: {
   const { view, depth } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
-  const cam = useRef({ W: Number.NaN, from: Number.NaN, t0: 0, shot: props.shot });
+  const cam = useRef({ W: Number.NaN, from: Number.NaN, t0: 0, shot: props.shot, h: Number.NaN, w: 0 });
 
   // A new shot starts a move from wherever the camera is now.
   const shotKey = JSON.stringify(props.shot);
@@ -157,7 +167,17 @@ export function Ocean(props: {
       const c = cam.current;
       if (root && world) {
         const w = root.clientWidth;
-        const h = root.clientHeight;
+        // When the screen height changes (keyboard up or down, rotation) the framing glides instead of jumping.
+        const rawH = root.clientHeight;
+        const h = (c.h = Number.isNaN(c.h) || still.matches || Math.abs(rawH - c.h) < 0.5 || w !== c.w ? rawH : c.h + (rawH - c.h) * 0.18);
+        c.w = w;
+        const short = h < SHORT;
+        if (root.classList.contains("short") !== short) root.classList.toggle("short", short);
+        if (root.classList.contains("tiny") !== h < TINY) root.classList.toggle("tiny", h < TINY);
+        const anchor = `${Math.round(promptLine(w, h))}px`;
+        if (root.style.getPropertyValue("--anchor") !== anchor) root.style.setProperty("--anchor", anchor);
+        const land = `${Math.round(landLine(h))}px`;
+        if (root.style.getPropertyValue("--land") !== land) root.style.setProperty("--land", land);
         const s = c.shot;
         const t = now - c.t0;
         let target: number;
@@ -252,12 +272,7 @@ export function Ocean(props: {
         </div>
         <div className="ds-snow" />
         <div className="ds-vignette" style={{ opacity: 0.25 + 0.5 * dark }} />
-        <div className={`ds-mascot at-${props.mascot ?? "title"}${props.gold ? " gold" : ""}`} aria-hidden>
-          <div className="ds-mascot-swim">
-            <Shrimp gold={props.gold} className="ds-mascot-sprite" />
-            <span className="ds-blub">blub!</span>
-          </div>
-        </div>
+        <Mascot spot={props.mascot ?? "title"} gold={!!props.gold} />
         <div className="ds-crt" />
       </div>
       {props.children}
@@ -266,6 +281,39 @@ export function Ocean(props: {
 }
 
 /** The glitchy wordmark. Letters bob one after another. */
+/** The shrimp. Tap it and it blubs. */
+function Mascot({ spot, gold }: { spot: MascotSpot; gold: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pokes, setPokes] = useState(0);
+  // Hit-tested by position, so it still answers when the (transparent) results layer is on top of it.
+  useEffect(() => {
+    let reset = 0;
+    const onDown = (e: PointerEvent) => {
+      const r = ref.current?.getBoundingClientRect();
+      if (!r || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+      if ((e.target as Element).closest("button, a, input, textarea, select, label")) return;
+      sfx.blub();
+      setPokes((n) => n + 1);
+      clearTimeout(reset);
+      reset = window.setTimeout(() => setPokes(0), 950);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      clearTimeout(reset);
+    };
+  }, []);
+  return (
+    // preventDefault on mousedown: a poke mustn't take focus from the answer box (that would drop a phone's keyboard)
+    <div ref={ref} className={`ds-mascot at-${spot}${gold ? " gold" : ""}${pokes ? " poked" : ""}`} aria-hidden onMouseDown={(e) => e.preventDefault()}>
+      <div className="ds-mascot-swim">
+        <Shrimp gold={gold} className="ds-mascot-sprite" />
+      </div>
+      <span key={pokes} className={`ds-blub${pokes ? " tapped" : ""}`}>blub!</span>
+    </div>
+  );
+}
+
 export function Wordmark({ small = false }: { small?: boolean }) {
   const name = "SHRIMPILLION";
   return (

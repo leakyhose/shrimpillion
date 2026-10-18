@@ -8,6 +8,9 @@ import { History } from "./pages/History.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Round } from "./pages/Round.tsx";
 import "./styles.css";
+import { trackKeyboard } from "./viewport.ts";
+
+trackKeyboard();
 
 function NotFound() {
   return (

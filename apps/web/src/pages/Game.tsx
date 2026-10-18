@@ -477,7 +477,8 @@ function ActivePrompt(props: {
             />
             <div className="ds-fuse"><i style={{ transform: `scaleX(${inPreview ? 1 : Math.max(0, left / duration)})` }} /></div>
           </div>
-          <button type="submit" className="btn-pink ds-dive" disabled={!text.trim() || busy || inPreview || over}>
+          {/* mousedown default would move focus off the field, and on a phone that drops the keyboard */}
+          <button type="submit" className="btn-pink ds-dive" disabled={!text.trim() || busy || inPreview || over} onMouseDown={(e) => e.preventDefault()}>
             DIVE
           </button>
           <button type="button" className="ds-pass" onClick={props.onPass} disabled={busy || inPreview || over}>
@@ -645,6 +646,8 @@ function ResultsFrame({ eyebrow, children }: { eyebrow: string; children: ReactN
             <span className="eyebrow">{eyebrow}</span>
           </div>
           {children}
+          {/* phones: the credit sits at the end of the results instead of floating over NEW DIVE and the list */}
+          <p className="results-credit">by <b>Yiming Su</b></p>
         </div>
       </div>
     </>
@@ -695,7 +698,7 @@ function Results({ game }: { game: any }) {
   return (
     <ResultsFrame eyebrow={`${pack.title} · dive complete`}>
       <ScoreBlock game={game} />
-      <ScoreCurve roundId={game.roundId} score={game.score} />
+      <ScoreCurve score={game.score} maxScore={game.maxScore} />
       <RankLine roundId={game.roundId} />
       <section className="share-box">
         <div className="share-title">Challenge a friend</div>
