@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PRESETS, grade, normalize, preparePrompt, type Answer } from "../src/index.ts";
+import { PRESETS, grade, normalize, preparePrompt, singulars, type Answer } from "../src/index.ts";
 import { DATA, runProbes, type ProbeOutcome } from "../scripts/eval-probes.ts";
 
 const countries: Answer[] = [
@@ -71,6 +71,29 @@ describe("grade (faithful)", () => {
   it("uses bracket-less names and curated aliases", () => {
     expect(name("mercury")).toBe("correction:Mercury (planet)");
     expect(name("hermes")).toBe("correction:Mercury (planet)");
+  });
+
+  it("folds singular and plural", () => {
+    const parts = preparePrompt("Name a body part people have exactly two of", [
+      { name: "Wenises", tier: "rare" },
+      { name: "Ears", tier: "plankton" },
+      { name: "Feet", tier: "plankton" },
+      { name: "Nostril wings", tier: "deepcut" },
+      { name: "Nostrils", tier: "schooler" },
+      { name: "Kneecap", tier: "schooler" },
+      { name: "Pelvis", tier: "rare" },
+    ]);
+    const part = (input: string) => {
+      const r = grade(parts, input);
+      return r.status === "reject" ? "reject" : `${r.status}:${r.answer.name}`;
+    };
+    expect(part("wenis")).toBe("correction:Wenises");
+    expect(part("ear")).toBe("correction:Ears");
+    expect(part("foot")).toBe("correction:Feet");
+    expect(part("nostril")).toBe("correction:Nostrils");
+    expect(part("kneecaps")).toBe("correction:Kneecap");
+    for (const w of ["pelvis", "glass", "cactus", "bus"]) expect(singulars(w)).toEqual([]);
+    expect(grade(parts, "ear", PRESETS.strict).status).toBe("correction");
   });
 
   it("strict preset has no typos or partials", () => {

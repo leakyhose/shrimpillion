@@ -1,5 +1,5 @@
 import { editDistance } from "./distance.ts";
-import { FILLER_WORDS, normalize, stem, words } from "./normalize.ts";
+import { FILLER_WORDS, normalize, singulars, stem, words } from "./normalize.ts";
 import { pointsFor } from "./tiers.ts";
 import type { Answer } from "./types.ts";
 
@@ -118,6 +118,12 @@ function partialForms(ws: string[], stems: Set<string>): string[][] {
   return out;
 }
 
+/** The phrase with its last word made singular, one per possible singular ("wenises" -> wenis, wenise). */
+function singularForms(ws: string[]): string[][] {
+  const last = ws[ws.length - 1];
+  return last ? singulars(last).map((s) => [...ws.slice(0, -1), s]) : [];
+}
+
 /** Build the lookup structures for one prompt. Do this once per prompt and cache it. */
 export function preparePrompt(promptText: string, answers: readonly Answer[]): PreparedPrompt {
   const stems = promptStems(promptText);
@@ -147,6 +153,7 @@ export function preparePrompt(promptText: string, answers: readonly Answer[]): P
     add(bases[0]!, i, "canonical");
     bases.slice(1).forEach((b) => add(b, i, "derived"));
     for (const b of bases) {
+      for (const f of singularForms(b)) add(f, i, "derived");
       for (const f of derivedForms(b, stems)) add(f, i, "derived");
       for (const f of partialForms(b, stems)) add(f, i, "partial");
     }
@@ -213,28 +220,34 @@ export function grade(prepared: PreparedPrompt, input: string, options: MatchOpt
   }
 
   const typed = compareForm(words(n));
-  const joined = typed.join("");
-  let best: { key: Key; distance: number } | undefined;
-  const { keys } = prepared;
-  const maxLen = joined.length + options.editCap;
-  for (let i = firstWithLength(keys, joined.length - options.editCap); i < keys.length; i++) {
-    const key = keys[i]!;
-    if (key.joined.length > maxLen) break;
-    if (key.kind === "derived" && !options.derived) continue;
-    if (key.kind === "partial" && !options.partial) continue;
-    const distance = distanceTo(typed, joined, key, options);
-    if (distance === Infinity) continue;
-    if (!best || isBetter(prepared, key, distance, best.key, best.distance)) best = { key, distance };
-  }
+  // A plural guess also tries its singular ("toes" -> Toe); that counts as a derived spelling.
+  const forms = [typed, ...(options.derived ? singularForms(typed) : [])];
+  let best: Candidate | undefined;
+  forms.forEach((form, f) => {
+    const joined = form.join("");
+    const { keys } = prepared;
+    const maxLen = joined.length + options.editCap;
+    for (let i = firstWithLength(keys, joined.length - options.editCap); i < keys.length; i++) {
+      const key = keys[i]!;
+      if (key.joined.length > maxLen) break;
+      if (key.kind === "derived" && !options.derived) continue;
+      if (key.kind === "partial" && !options.partial) continue;
+      const distance = distanceTo(form, joined, key, options);
+      if (distance === Infinity) continue;
+      const kind = f > 0 && key.kind === "canonical" ? "derived" : key.kind;
+      const c = { answerIndex: key.answerIndex, kind, distance };
+      if (!best || isBetter(prepared, c, best)) best = c;
+    }
+  });
   if (!best) return { status: "reject" };
-  const { answerIndex, kind } = best.key;
-  return {
-    status: "correction",
-    answerIndex,
-    answer: prepared.answers[answerIndex]!,
-    how: kind,
-    distance: best.distance,
-  };
+  const { answerIndex, kind, distance } = best;
+  return { status: "correction", answerIndex, answer: prepared.answers[answerIndex]!, how: kind, distance };
+}
+
+interface Candidate {
+  answerIndex: number;
+  kind: KeyKind;
+  distance: number;
 }
 
 function firstWithLength(keys: Key[], len: number): number {
@@ -248,8 +261,8 @@ function firstWithLength(keys: Key[], len: number): number {
 }
 
 /** Tie-break: fewer edits, then better key kind, then the more common answer, then list order. */
-function isBetter(p: PreparedPrompt, a: Key, da: number, b: Key, db: number): boolean {
-  if (da !== db) return da < db;
+function isBetter(p: PreparedPrompt, a: Candidate, b: Candidate): boolean {
+  if (a.distance !== b.distance) return a.distance < b.distance;
   if (KIND_RANK[a.kind] !== KIND_RANK[b.kind]) return KIND_RANK[a.kind] < KIND_RANK[b.kind];
   const pa = pointsFor(p.answers[a.answerIndex]!.tier);
   const pb = pointsFor(p.answers[b.answerIndex]!.tier);

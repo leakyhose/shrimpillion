@@ -35,3 +35,23 @@ export function stem(word: string): string {
   if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
   return word;
 }
+
+const IRREGULAR_PLURALS: Record<string, string> = {
+  feet: "foot", teeth: "tooth", geese: "goose", mice: "mouse", lice: "louse", men: "man", women: "woman",
+  children: "child", people: "person", oxen: "ox", knives: "knife", wives: "wife", lives: "life", leaves: "leaf",
+  halves: "half", calves: "calf", wolves: "wolf", shelves: "shelf", loaves: "loaf", thieves: "thief", hooves: "hoof",
+};
+
+/**
+ * Possible singular forms of a plural-looking word, so "ear" finds Ears and "wenis" finds Wenises.
+ * Words ending in -ss, -us or -is are left alone (glass, cactus, pelvis).
+ */
+export function singulars(word: string): string[] {
+  const irregular = IRREGULAR_PLURALS[word];
+  if (irregular) return [irregular];
+  if (word.length <= 3 || !word.endsWith("s") || /(ss|us|is)$/.test(word)) return [];
+  const out = [word.slice(0, -1)];
+  if (word.length > 4 && word.endsWith("ies")) out.push(word.slice(0, -3) + "y");
+  else if (/(s|x|z|ch|sh|o)es$/.test(word) && word.length > 4) out.push(word.slice(0, -2));
+  return out;
+}
