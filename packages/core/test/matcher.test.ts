@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PRESETS, grade, normalize, preparePrompt, singulars, type Answer } from "../src/index.ts";
+import { PRESETS, grade, hasSpellingRule, normalize, preparePrompt, singulars, type Answer } from "../src/index.ts";
 import { DATA, runProbes, type ProbeOutcome } from "../scripts/eval-probes.ts";
 
 const countries: Answer[] = [
@@ -120,6 +120,17 @@ describe("grade (faithful)", () => {
     expect(name("republic of iraq")).toBe("correction:Iraq");
     expect(name("persia")).toBe("correction:Iran");
     expect(name("kingdom")).toBe("reject"); // only in "Kingdom of Iraq", which counts as a whole name only
+  });
+
+  it("gives no aliases on prompts with a spelling rule", () => {
+    const long = preparePrompt("Name a country with 8 or more letters", [
+      { name: "North Korea", tier: "plankton", aliases: ["Hermit Kingdom"] },
+    ]);
+    expect(grade(long, "dprk").status).toBe("reject"); // shared table alias, but only 4 letters
+    expect(grade(long, "hermit kingdom").status).toBe("reject");
+    expect(hasSpellingRule("Name an international airport (must say full name)")).toBe(true);
+    expect(hasSpellingRule("Name a letter of the Greek alphabet")).toBe(false);
+    expect(hasSpellingRule("Name a sovereign country whose flag contains both red and white")).toBe(false);
   });
 
   it("strict preset has no typos or partials", () => {

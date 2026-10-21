@@ -1,4 +1,4 @@
-import { commonAliases } from "./aliases.ts";
+import { commonAliases, hasSpellingRule } from "./aliases.ts";
 import { editDistance } from "./distance.ts";
 import { FILLER_WORDS, normalize, singulars, stem, words } from "./normalize.ts";
 import { pointsFor } from "./tiers.ts";
@@ -133,6 +133,7 @@ function singularForms(ws: string[]): string[][] {
 /** Build the lookup structures for one prompt. Do this once per prompt and cache it. */
 export function preparePrompt(promptText: string, answers: readonly Answer[]): PreparedPrompt {
   const stems = promptStems(promptText);
+  const spellingRule = hasSpellingRule(promptText);
   const exact = new Map<string, number>();
   const candidates = new Map<string, { words: string[]; entries: Entry[] }>();
 
@@ -152,7 +153,7 @@ export function preparePrompt(promptText: string, answers: readonly Answer[]): P
     const bracketless = normalize(answer.name.replace(/\([^)]*\)/g, " "));
     if (bracketless && bracketless !== canonical) bases.push(words(bracketless));
     // Aliases count only as whole names (or their singular): "hopper" must not find Eleven through "Jane Hopper".
-    const aliases = [...commonAliases(answer.name), ...(answer.aliases ?? [])]
+    const aliases = (spellingRule ? [] : [...commonAliases(answer.name), ...(answer.aliases ?? [])])
       .map((a) => words(normalize(a)))
       .filter((a) => a.length);
 

@@ -111,3 +111,13 @@ for (const [name, aliases] of Object.entries(ONE_WAY)) {
 export function commonAliases(answerName: string): string[] {
   return TABLE.get(normalize(answerName)) ?? [];
 }
+
+/**
+ * Prompts with a spelling or naming rule ("starts with B", "8 or more letters", "has an X in its name",
+ * "must say full name").
+ * Other names would dodge the rule ("DPRK" is not 8 letters), so they get no aliases.
+ */
+const SPELLING_RULE =
+  /\b(starts?|begins?|ends?) (with|in)\b|\bletters?\b(?!.*\balphabet)|\bsyllables?\b|\bpalindrome|\bvowel|\bcontain(s|ing)\b.*["“]|\bcontains [a-z],|\bfull name\b|\bformal name\b|\bin (its|their) (english )?name\b/i;
+export const hasSpellingRule = (promptText: string) => SPELLING_RULE.test(promptText);
+
