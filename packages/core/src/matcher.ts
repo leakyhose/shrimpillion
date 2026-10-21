@@ -1,3 +1,4 @@
+import { commonAliases } from "./aliases.ts";
 import { editDistance } from "./distance.ts";
 import { FILLER_WORDS, normalize, singulars, stem, words } from "./normalize.ts";
 import { pointsFor } from "./tiers.ts";
@@ -57,7 +58,11 @@ interface Key {
   joined: string;
   answerIndex: number;
   kind: KeyKind;
+  /** A partial that leaves out the start of the name ("baby tomato" of Belarusian baby tomato). */
+  tail: boolean;
 }
+
+type Entry = { answerIndex: number; kind: KeyKind; tail: boolean };
 
 export interface PreparedPrompt {
   answers: readonly Answer[];
@@ -104,15 +109,15 @@ function derivedForms(ws: string[], stems: Set<string>): string[][] {
   return out;
 }
 
-function partialForms(ws: string[], stems: Set<string>): string[][] {
-  const out: string[][] = [];
+function partialForms(ws: string[], stems: Set<string>): { gram: string[]; tail: boolean }[] {
+  const out: { gram: string[]; tail: boolean }[] = [];
   for (let n = 1; n < ws.length; n++) {
     for (let i = 0; i + n <= ws.length; i++) {
       const gram = ws.slice(i, i + n);
       if (FILLER_WORDS.has(gram[0]!) || FILLER_WORDS.has(gram[n - 1]!)) continue;
       if (gram.every((w) => stems.has(stem(w)))) continue;
       if (n === 1 && (gram[0]!.length < 3 || /^\d+$/.test(gram[0]!))) continue;
-      out.push(gram);
+      out.push({ gram, tail: i > 0 });
     }
   }
   return out;
@@ -128,15 +133,15 @@ function singularForms(ws: string[]): string[][] {
 export function preparePrompt(promptText: string, answers: readonly Answer[]): PreparedPrompt {
   const stems = promptStems(promptText);
   const exact = new Map<string, number>();
-  const candidates = new Map<string, { words: string[]; entries: { answerIndex: number; kind: KeyKind }[] }>();
+  const candidates = new Map<string, { words: string[]; entries: Entry[] }>();
 
-  const add = (ws: string[], answerIndex: number, kind: KeyKind) => {
+  const add = (ws: string[], answerIndex: number, kind: KeyKind, tail = false) => {
     const cf = compareForm(ws);
     if (!cf.length) return;
     const text = cf.join(" ");
     let c = candidates.get(text);
     if (!c) candidates.set(text, (c = { words: cf, entries: [] }));
-    c.entries.push({ answerIndex, kind });
+    c.entries.push({ answerIndex, kind, tail });
   };
 
   answers.forEach((answer, i) => {
@@ -151,18 +156,20 @@ export function preparePrompt(promptText: string, answers: readonly Answer[]): P
     }
 
     add(bases[0]!, i, "canonical");
+    // Shared well-known names count only as whole names: "republic" alone must not find Republic of Korea.
+    for (const alias of commonAliases(answer.name)) add(words(normalize(alias)), i, "derived");
     bases.slice(1).forEach((b) => add(b, i, "derived"));
     for (const b of bases) {
       for (const f of singularForms(b)) add(f, i, "derived");
       for (const f of derivedForms(b, stems)) add(f, i, "derived");
-      for (const f of partialForms(b, stems)) add(f, i, "partial");
+      for (const { gram, tail } of partialForms(b, stems)) add(gram, i, "partial", tail);
     }
   });
 
   const keys: Key[] = [];
   for (const { words: ws, entries } of candidates.values()) {
     const owner = resolveOwner(entries, answers);
-    if (owner) keys.push({ words: ws, joined: ws.join(""), answerIndex: owner.answerIndex, kind: owner.kind });
+    if (owner) keys.push({ words: ws, joined: ws.join(""), ...owner });
   }
   keys.sort((a, b) => a.joined.length - b.joined.length);
   return { answers, exact, keys };
@@ -173,18 +180,16 @@ export function preparePrompt(promptText: string, answers: readonly Answer[]): P
  * it, the key goes to the single common-tier answer among them, or to nobody
  * ("byers" fits four Stranger Things characters and is rejected; "hopper" goes to Jim Hopper).
  */
-function resolveOwner(
-  entries: { answerIndex: number; kind: KeyKind }[],
-  answers: readonly Answer[],
-): { answerIndex: number; kind: KeyKind } | undefined {
+function resolveOwner(entries: Entry[], answers: readonly Answer[]): Entry | undefined {
   const bestRank = Math.min(...entries.map((e) => KIND_RANK[e.kind]));
   const best = entries.filter((e) => KIND_RANK[e.kind] === bestRank);
   const kind = best[0]!.kind;
   if (kind === "canonical") return best[0];
   const owners = [...new Set(best.map((e) => e.answerIndex))];
-  if (owners.length === 1) return { answerIndex: owners[0]!, kind };
   const common = owners.filter((i) => pointsFor(answers[i]!.tier) <= COMMON_POINTS_MAX);
-  return common.length === 1 ? { answerIndex: common[0]!, kind } : undefined;
+  const owner = owners.length === 1 ? owners[0] : common.length === 1 ? common[0] : undefined;
+  if (owner === undefined) return undefined;
+  return { answerIndex: owner, kind, tail: best.every((e) => e.answerIndex !== owner || e.tail) };
 }
 
 function allowedEdits(len: number, o: MatchOptions): number {
@@ -195,7 +200,10 @@ function distanceTo(input: string[], joined: string, key: Key, o: MatchOptions):
   if (input.length === key.words.length) {
     let total = 0;
     for (let i = 0; i < input.length; i++) {
-      const budget = Math.min(allowedEdits(input[i]!.length, o), o.editCap - total);
+      // A lone word's budget comes from what was typed ("qaar" is not Qatar); inside a phrase, from the
+      // longer of the typed and answer word ("sri lnka" is Sri Lanka, "baby tomato" is Bamby tomato).
+      const len = input.length > 1 ? Math.max(input[i]!.length, key.words[i]!.length) : input[i]!.length;
+      const budget = Math.min(allowedEdits(len, o), o.editCap - total);
       const d = editDistance(input[i]!, key.words[i]!, budget, o.swapsAsOne);
       if (d === Infinity) return Infinity;
       total += d;
@@ -235,7 +243,7 @@ export function grade(prepared: PreparedPrompt, input: string, options: MatchOpt
       const distance = distanceTo(form, joined, key, options);
       if (distance === Infinity) continue;
       const kind = f > 0 && key.kind === "canonical" ? "derived" : key.kind;
-      const c = { answerIndex: key.answerIndex, kind, distance };
+      const c = { answerIndex: key.answerIndex, kind, tail: key.tail, distance };
       if (!best || isBetter(prepared, c, best)) best = c;
     }
   });
@@ -247,6 +255,7 @@ export function grade(prepared: PreparedPrompt, input: string, options: MatchOpt
 interface Candidate {
   answerIndex: number;
   kind: KeyKind;
+  tail: boolean;
   distance: number;
 }
 
@@ -260,8 +269,14 @@ function firstWithLength(keys: Key[], len: number): number {
   return lo;
 }
 
-/** Tie-break: fewer edits, then better key kind, then the more common answer, then list order. */
+/**
+ * A whole name, even with a typo, beats the end of another name ("baby tomato" is Bamby tomato, not
+ * Belarusian baby tomato); the start of a name still wins on edits ("billy" is Billy Hargrove, not Bill).
+ * Then fewer edits, better key kind, the more common answer, list order.
+ */
 function isBetter(p: PreparedPrompt, a: Candidate, b: Candidate): boolean {
+  const aTail = a.kind === "partial" && a.tail, bTail = b.kind === "partial" && b.tail;
+  if (aTail !== bTail && (a.kind !== "partial" || b.kind !== "partial")) return bTail;
   if (a.distance !== b.distance) return a.distance < b.distance;
   if (KIND_RANK[a.kind] !== KIND_RANK[b.kind]) return KIND_RANK[a.kind] < KIND_RANK[b.kind];
   const pa = pointsFor(p.answers[a.answerIndex]!.tier);
