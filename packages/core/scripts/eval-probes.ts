@@ -1,6 +1,6 @@
 // Replays a log of probed guesses (research/data, not in the repo) through the matcher.
 // Usage: npm run eval:matcher [-- faithful|forgiving|strict]
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { PRESETS, grade, preparePrompt, type MatchPreset, type PreparedPrompt, type Tier } from "../src/index.ts";
 
@@ -20,9 +20,16 @@ export function runProbes(preset: MatchPreset = "faithful"): ProbeOutcome[] {
   };
   // The source data names the top tier "krillion".
   const tierOf = (t: string) => (t === "krillion" ? "shrimpillion" : t) as Tier;
+  // Curated aliases, keyed by bank prompt id; round "r3" of Unlimited #1 is "u001-3".
+  const aliases: Record<string, Record<string, string[]>> = existsSync(DATA + "aliases.json")
+    ? JSON.parse(readFileSync(DATA + "aliases.json", "utf8"))
+    : {};
   const prepared = new Map<string, PreparedPrompt>();
   for (const r of reveal.rounds) {
-    prepared.set(r.round, preparePrompt(r.text, r.answers.map((a) => ({ name: a.answer, tier: tierOf(a.tier) }))));
+    const extra = aliases[`u001-${r.round.slice(1)}`] ?? {};
+    prepared.set(r.round, preparePrompt(r.text, r.answers.map((a) => ({
+      name: a.answer, tier: tierOf(a.tier), ...(extra[a.answer] && { aliases: extra[a.answer] }),
+    }))));
   }
 
   const lines = readFileSync(DATA + "krillion-probe-log.jsonl", "utf8").trim().split("\n");

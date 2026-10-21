@@ -62,7 +62,8 @@ interface Key {
   tail: boolean;
 }
 
-type Entry = { answerIndex: number; kind: KeyKind; tail: boolean };
+/** curated: written down on purpose (an alias), as opposed to made by a rule (initials, partials). */
+type Entry = { answerIndex: number; kind: KeyKind; tail: boolean; curated?: boolean };
 
 export interface PreparedPrompt {
   answers: readonly Answer[];
@@ -135,13 +136,13 @@ export function preparePrompt(promptText: string, answers: readonly Answer[]): P
   const exact = new Map<string, number>();
   const candidates = new Map<string, { words: string[]; entries: Entry[] }>();
 
-  const add = (ws: string[], answerIndex: number, kind: KeyKind, tail = false) => {
+  const add = (ws: string[], answerIndex: number, kind: KeyKind, tail = false, curated = false) => {
     const cf = compareForm(ws);
     if (!cf.length) return;
     const text = cf.join(" ");
     let c = candidates.get(text);
     if (!c) candidates.set(text, (c = { words: cf, entries: [] }));
-    c.entries.push({ answerIndex, kind, tail });
+    c.entries.push({ answerIndex, kind, tail, curated });
   };
 
   answers.forEach((answer, i) => {
@@ -150,14 +151,15 @@ export function preparePrompt(promptText: string, answers: readonly Answer[]): P
     const bases = [words(canonical)];
     const bracketless = normalize(answer.name.replace(/\([^)]*\)/g, " "));
     if (bracketless && bracketless !== canonical) bases.push(words(bracketless));
-    for (const alias of answer.aliases ?? []) {
-      const a = normalize(alias);
-      if (a) bases.push(words(a));
-    }
+    // Aliases count only as whole names (or their singular): "hopper" must not find Eleven through "Jane Hopper".
+    const aliases = [...commonAliases(answer.name), ...(answer.aliases ?? [])]
+      .map((a) => words(normalize(a)))
+      .filter((a) => a.length);
 
     add(bases[0]!, i, "canonical");
-    // Shared well-known names count only as whole names: "republic" alone must not find Republic of Korea.
-    for (const alias of commonAliases(answer.name)) add(words(normalize(alias)), i, "derived");
+    for (const alias of aliases) {
+      for (const f of [alias, ...singularForms(alias)]) add(f, i, "derived", false, true);
+    }
     bases.slice(1).forEach((b) => add(b, i, "derived"));
     for (const b of bases) {
       for (const f of singularForms(b)) add(f, i, "derived");
@@ -185,7 +187,10 @@ function resolveOwner(entries: Entry[], answers: readonly Answer[]): Entry | und
   const best = entries.filter((e) => KIND_RANK[e.kind] === bestRank);
   const kind = best[0]!.kind;
   if (kind === "canonical") return best[0];
-  const owners = [...new Set(best.map((e) => e.answerIndex))];
+  let owners = [...new Set(best.map((e) => e.answerIndex))];
+  // an alias someone wrote down beats a rule-made clash ("omg" is Oh my god, not the initials of Oh my gosh)
+  const curated = [...new Set(best.filter((e) => e.curated).map((e) => e.answerIndex))];
+  if (owners.length > 1 && curated.length === 1) owners = curated;
   const common = owners.filter((i) => pointsFor(answers[i]!.tier) <= COMMON_POINTS_MAX);
   const owner = owners.length === 1 ? owners[0] : common.length === 1 ? common[0] : undefined;
   if (owner === undefined) return undefined;

@@ -108,17 +108,37 @@ export function buildBank(dataDir = DEFAULT_DATA_DIR, log: (msg: string) => void
     for (const p of rest) { p.duplicateOf = keep!.id; duplicates++; }
   }
 
+  // 4. Curated aliases ({ promptId: { answerName: [alias, …] } }), shared by prompts with the same text.
+  const aliasFile = join(dataDir, "aliases.json");
+  let aliasCount = 0;
+  if (existsSync(aliasFile)) {
+    const byPrompt = readJson<Record<string, Record<string, string[]>>>(aliasFile);
+    for (const [id, map] of Object.entries(byPrompt)) {
+      const source = prompts.get(id);
+      if (!source) { warnings.push(`aliases: unknown prompt ${id}`); continue; }
+      for (const p of byText.get(normalize(source.text)) ?? [source]) {
+        for (const a of p.answers) {
+          const extra = map[a.name];
+          if (!extra?.length) continue;
+          a.aliases = [...new Set([...(a.aliases ?? []), ...extra])];
+          if (p === source) aliasCount += extra.length;
+        }
+      }
+    }
+  }
+
   const promptList = [...prompts.values()].sort((a, b) => a.id.localeCompare(b.id));
   const setList = [...sets.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const aliasStamp = promptList.flatMap((p) => p.answers.flatMap((a) => (a.aliases ?? []).map((x) => `${p.id}|${a.name}|${x}`)));
   const bank: BankFile = {
-    version: sha(promptList.map((p) => `${p.id}:${p.version}`).join("\n")),
+    version: sha([...promptList.map((p) => `${p.id}:${p.version}`), ...aliasStamp].join("\n")),
     builtAt: new Date().toISOString(),
     sets: setList,
     prompts: promptList,
   };
 
   const answers = promptList.reduce((n, p) => n + p.answers.length, 0);
-  log(`bank ${bank.version}: ${setList.length} sets, ${promptList.length} prompts (${duplicates} duplicates), ${answers} answers`);
+  log(`bank ${bank.version}: ${setList.length} sets, ${promptList.length} prompts (${duplicates} duplicates), ${answers} answers, ${aliasCount} aliases`);
   for (const w of warnings.slice(0, 20)) log(`  warn: ${w}`);
   if (warnings.length > 20) log(`  … ${warnings.length - 20} more warnings`);
   return bank;
